@@ -1,74 +1,73 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { ARC_L, FACES, R, SIDE_H, THETA, type FaceId } from './geometry';
+import { SIDE_H, type FaceId, type Geometry } from './geometry';
 import type { EditorManager } from './editor';
 
 const SC = 1 / 100; // mm -> world units
-const N = 40; // arc segments
 
 // Each face mesh uses the SAME intrinsic (u right, v down, viewed from outside)
 // frame as the editor canvas and the printed net, so texture orientation matches
-// the folded paper model exactly.
-function buildFaceGeometry(id: FaceId): THREE.BufferGeometry {
-  const a1 = -THETA / 2;
-  const a2 = THETA / 2;
+// the folded paper model exactly. Flat-back wedge: every face is a polygon.
+function buildFaceGeometry(geo: Geometry, id: FaceId): THREE.BufferGeometry {
+  const { R, theta, chord, topH } = geo;
+  const H = SIDE_H;
+  const half = theta / 2;
+  const cx = R * Math.cos(half); // back-panel x
+  const cz = R * Math.sin(half); // back-panel half-width in z
   const pos: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
-  const sinT = Math.sin(THETA);
 
   if (id === 'side1' || id === 'side2') {
-    const corners: [number, number][] = [[0, 0], [R, 0], [R, SIDE_H], [0, SIDE_H]];
+    const a = id === 'side1' ? half : -half;
+    const corners: [number, number][] = [[0, 0], [R, 0], [R, H], [0, H]];
     for (const [u, v] of corners) {
       const rad = id === 'side1' ? u : R - u;
-      const a = id === 'side1' ? a2 : a1;
-      pos.push(rad * Math.cos(a) * SC, (SIDE_H - v) * SC, rad * Math.sin(a) * SC);
-      uv.push(u / R, 1 - v / SIDE_H);
+      pos.push(rad * Math.cos(a) * SC, (H - v) * SC, rad * Math.sin(a) * SC);
+      uv.push(u / R, 1 - v / H);
     }
     idx.push(0, 1, 2, 0, 2, 3);
   } else if (id === 'outer') {
-    for (let i = 0; i <= N; i++) {
-      const u = (ARC_L * i) / N;
-      const a = a2 - u / R;
-      for (const v of [0, SIDE_H]) {
-        pos.push(R * Math.cos(a) * SC, (SIDE_H - v) * SC, R * Math.sin(a) * SC);
-        uv.push(u / ARC_L, 1 - v / SIDE_H);
-      }
+    // flat back: u=0 at the side1 corner, u=chord at the side2 corner
+    const corners: [number, number][] = [[0, 0], [chord, 0], [chord, H], [0, H]];
+    for (const [u, v] of corners) {
+      pos.push(cx * SC, (H - v) * SC, (cz - (2 * cz * u) / chord) * SC);
+      uv.push(u / chord, 1 - v / H);
     }
-    for (let i = 0; i < N; i++) {
-      const k = i * 2;
-      idx.push(k, k + 2, k + 3, k, k + 3, k + 1);
-    }
+    idx.push(0, 1, 2, 0, 2, 3);
   } else {
-    // top / bottom sectors: triangle fan from the apex
-    const y = id === 'top' ? SIDE_H : 0;
-    pos.push(0, y * SC, 0);
-    uv.push(0, id === 'top' ? 0 : 1);
-    for (let i = 0; i <= N; i++) {
-      const phi = (THETA * i) / N;
-      const a = a2 - phi;
-      pos.push(R * Math.cos(a) * SC, y * SC, R * Math.sin(a) * SC);
-      const t = Math.sin(phi) / sinT;
-      uv.push(Math.cos(phi), id === 'top' ? t : 1 - t);
+    // top / bottom triangles
+    const y = (id === 'top' ? H : 0) * SC;
+    const apexV = id === 'top' ? topH : 0;
+    // intrinsic (u,v) -> uv; 3D corners: apex, side1 corner, side2 corner
+    const tri: { p: [number, number, number]; t: [number, number] }[] = [
+      { p: [0, y, 0], t: [0, 1 - apexV / topH] },
+      { p: [cx * SC, y, cz * SC], t: [1, 1 - (id === 'top' ? topH : 0) / topH] },
+      { p: [cx * SC, y, -cz * SC], t: [Math.cos(theta), 1 - (id === 'top' ? 0 : topH) / topH] },
+    ];
+    for (const { p, t } of tri) {
+      pos.push(...p);
+      uv.push(...t);
     }
-    for (let i = 1; i <= N; i++) idx.push(0, i, i + 1);
+    idx.push(0, 1, 2);
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
 }
 
-export default function Preview3D({ mgr }: { mgr: EditorManager }) {
+export default function Preview3D({ mgr, slices }: { mgr: EditorManager; slices: number }) {
   const holder = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = holder.current;
     if (!el) return;
+    const geo = mgr.geo;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -79,10 +78,11 @@ export default function Preview3D({ mgr }: { mgr: EditorManager }) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#1a1b21');
 
-    // camera orbit start matches the design (r=3, th=-0.85, ph=1.12 around the target)
-    const target = new THREE.Vector3(0.45, 0.24, 0);
+    // camera orbit start matches the design (r, th=-0.85, ph=1.12 around the target)
+    const size = geo.R * SC;
+    const target = new THREE.Vector3(0.45 * size, 0.5 * SIDE_H * SC, 0);
     const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 50);
-    const r0 = 3.0;
+    const r0 = 3.0 * size;
     const th = -0.85;
     const ph = 1.12;
     camera.position.set(
@@ -95,28 +95,28 @@ export default function Preview3D({ mgr }: { mgr: EditorManager }) {
     controls.target.copy(target);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.minDistance = 1.3;
-    controls.maxDistance = 7;
+    controls.minDistance = 1.3 * size;
+    controls.maxDistance = 7 * size;
     controls.minPolarAngle = 0.15;
     controls.maxPolarAngle = 1.55;
     controls.enablePan = false;
 
     const textures = new Map<FaceId, THREE.CanvasTexture>();
-    const dirty = new Set<FaceId>(FACES.map((f) => f.id));
+    const dirty = new Set<FaceId>(geo.faces.map((f) => f.id));
 
-    for (const f of FACES) {
+    for (const f of geo.faces) {
       const tex = new THREE.CanvasTexture(mgr.canvas(f.id).lowerCanvasEl);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = 4;
       textures.set(f.id, tex);
-      const geo = buildFaceGeometry(f.id);
+      const g = buildFaceGeometry(geo, f.id);
       const mesh = new THREE.Mesh(
-        geo,
+        g,
         new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }),
       );
       scene.add(mesh);
       const edges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(geo, 35),
+        new THREE.EdgesGeometry(g, 35),
         new THREE.LineBasicMaterial({ color: 0x3a3d47 }),
       );
       scene.add(edges);
@@ -124,11 +124,11 @@ export default function Preview3D({ mgr }: { mgr: EditorManager }) {
 
     // cake plate under the slice
     const plate = new THREE.Mesh(
-      new THREE.CircleGeometry(1.4, 48),
+      new THREE.CircleGeometry(1.4 * size, 48),
       new THREE.MeshLambertMaterial({ color: 0x24262d }),
     );
     plate.rotation.x = -Math.PI / 2;
-    plate.position.set(0.45, -0.005, 0);
+    plate.position.set(0.45 * size, -0.005, 0);
     scene.add(plate);
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3c46, 0.95 * Math.PI));
@@ -179,7 +179,7 @@ export default function Preview3D({ mgr }: { mgr: EditorManager }) {
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [mgr]);
+  }, [mgr, slices]);
 
   return <div className="preview3d" ref={holder} />;
 }

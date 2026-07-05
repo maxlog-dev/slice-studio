@@ -18,14 +18,19 @@ npm run build    # production build in dist/
 
 ## Features
 
-- **5 editable faces** — Side A / Side B, Back (the curved crust, unrolled to a
-  rectangle), Top and Bottom (circle sectors). Slice: radius 100 mm, 30° wedge,
-  55 mm tall.
+- **5 editable faces** — Side A / Side B, Back (flat, so every fold line is
+  straight), Top and Bottom (triangles). Pick 6 / 8 / 10 / 12 slices per cake
+  (60° / 45° / 36° / 30° wedge); the radius auto-fits the largest slice that
+  still prints on one A4 page. All faces are 55 mm tall.
+- **Neighbor shadows** — while editing a face, the adjacent faces are shown
+  unfolded flat around it (translucent), so patterns can be lined up across
+  fold edges. Toggle in the bottom bar.
 - **Images** — "＋ Add image" (active face) or "＋ Image on all faces" (linked);
   move, resize, rotate, clone (Ctrl+D), delete; square/circle crop with an
   "Adjust crop" mode (drag repositions the window, corner handles resize it).
-- **Drawing** — brush plus drag-to-draw rect / ellipse / line / triangle; one color
-  control, size in mm, "Fill shapes" toggle, per-face background color.
+- **Drawing** — brush (S / M / L presets + mm slider) plus drag-to-draw
+  rect / ellipse / line / triangle (the press point anchors a corner); one color
+  control, "Fill shapes" toggle, per-face background color.
 - **Edit separately or simultaneously** — "⛓ Edit all faces" adds new objects to
   every face and propagates move/scale/rotate/delete/color to their twins.
 - **Mirror** the active face onto any other face (target dropdown + ⇄ Copy).

@@ -271,6 +271,17 @@ button:active:not(:disabled) {
   flex: none;
 }
 
+.canvas-holder .ghost {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.canvas-holder .canvas-container {
+  position: relative;
+  z-index: 1;
+}
+
 .canvas-holder .overlay {
   position: absolute;
   top: 0;

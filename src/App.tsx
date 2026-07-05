@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { EditorManager, type Tool } from './editor';
-import { FACE, FACES, type FaceId } from './geometry';
+import {
+  DEG,
+  PX_PER_MM,
+  SLICE_OPTIONS,
+  wedgeDeg,
+  type FaceId,
+  type SliceCount,
+} from './geometry';
 import { composeSheet, exportPDF } from './pdf';
 import Preview3D from './Preview3D';
+
+const GHOST_MARGIN_MM = 32;
+const BRUSH_PRESETS: [string, number][] = [
+  ['S', 1.5],
+  ['M', 4],
+  ['L', 8],
+];
 
 const TOOL_KEYS: Record<string, Tool> = {
   v: 'select',
@@ -12,6 +26,8 @@ const TOOL_KEYS: Record<string, Tool> = {
   l: 'line',
   t: 'tri',
 };
+
+const fmt = (n: number) => String(+n.toFixed(3));
 
 function ToolIcon({ tool }: { tool: Tool }) {
   const common = {
@@ -71,12 +87,83 @@ const TOOLS: [Tool, string][] = [
   ['tri', 'Triangle (T)'],
 ];
 
+/** Translucent "unfolded neighbors" around the active face, for pattern matching.
+ * Always mounted (Fabric re-parents the sibling <canvas>, so conditional React
+ * children before it would corrupt reconciliation); visibility gated via props. */
+function GhostLayer({
+  mgr,
+  active,
+  slices,
+  visible,
+}: {
+  mgr: EditorManager;
+  active: FaceId;
+  slices: number;
+  visible: boolean;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv || !visible) return;
+    const geo = mgr.geo;
+    const A = geo.face[active];
+    const M = GHOST_MARGIN_MM;
+    const draw = () => {
+      const w = Math.round((A.wMM + 2 * M) * PX_PER_MM);
+      const h = Math.round((A.hMM + 2 * M) * PX_PER_MM);
+      if (cv.width !== w) cv.width = w;
+      if (cv.height !== h) cv.height = h;
+      const ctx = cv.getContext('2d')!;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      // map sheet-mm space into the active face's local frame
+      ctx.scale(PX_PER_MM, PX_PER_MM);
+      ctx.translate(M, M);
+      ctx.rotate(-A.sheet.rot * DEG);
+      ctx.translate(-A.sheet.x, -A.sheet.y);
+      ctx.globalAlpha = 0.42;
+      for (const N of geo.faces) {
+        if (N.id === active) continue;
+        const el = mgr.canvas(N.id).lowerCanvasEl;
+        ctx.save();
+        ctx.translate(N.sheet.x, N.sheet.y);
+        ctx.rotate(N.sheet.rot * DEG);
+        ctx.clip(new Path2D(N.outline));
+        ctx.drawImage(el, 0, 0, el.width, el.height, 0, 0, N.wMM, N.hMM);
+        ctx.restore();
+      }
+    };
+    draw();
+    let raf = 0;
+    const unsubscribe = mgr.addRenderListener((id) => {
+      if (id === active) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(draw);
+    });
+    return () => {
+      unsubscribe();
+      cancelAnimationFrame(raf);
+    };
+  }, [mgr, active, slices, visible]);
+
+  const px = GHOST_MARGIN_MM * PX_PER_MM;
+  return (
+    <canvas
+      ref={ref}
+      className="ghost"
+      style={{ left: -px, top: -px, display: visible ? 'block' : 'none' }}
+    />
+  );
+}
+
 export default function App() {
   const mgr = useMemo(() => new EditorManager(), []);
   const [, force] = useReducer((x: number) => x + 1, 0);
   mgr.onUpdate = force;
   const [ready, setReady] = useState(false);
   const [toast, setToast] = useState('');
+  const [ghosts, setGhosts] = useState(true);
   const [mirrorTarget, setMirrorTarget] = useState<FaceId>('side2');
   const fileInput = useRef<HTMLInputElement>(null);
   const fileAll = useRef(false);
@@ -140,12 +227,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [mgr]);
 
-  const active = FACE[mgr.active];
+  const geo = mgr.geo;
+  const active = geo.face[mgr.active];
   const sel = ready ? mgr.selection() : [];
   const selImage = ready ? mgr.selectedImage() : null;
   const cropShape = ready ? mgr.cropShape() : 'none';
   const bg = ready ? String(mgr.canvas().backgroundColor ?? '#ffffff') : '#ffffff';
-  const mirrorChoices = FACES.filter((f) => f.id !== mgr.active);
+  const mirrorChoices = geo.faces.filter((f) => f.id !== mgr.active);
   const mirrorDst = mirrorTarget === mgr.active ? mirrorChoices[0].id : mirrorTarget;
 
   const pickFile = (all: boolean) => {
@@ -181,6 +269,19 @@ export default function App() {
           ↪ Redo
         </button>
         <div className="vsep" />
+        <div className="mirror-group" title="How many slices the whole cake is cut into — sets the wedge angle">
+          <span className="muted">Slices</span>
+          <select
+            value={geo.slices}
+            onChange={(e) => mgr.setSlices(+e.target.value as SliceCount)}
+          >
+            {SLICE_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n} · {fmt(wedgeDeg(n))}°
+              </option>
+            ))}
+          </select>
+        </div>
         <button
           className={`btn ${mgr.editAll ? 'active' : ''}`}
           title="When on: new images and drawings are added to every face, and moving/resizing a linked object updates it on all faces"
@@ -190,10 +291,7 @@ export default function App() {
         </button>
         <div className="mirror-group">
           <span className="muted">Mirror {active.label} →</span>
-          <select
-            value={mirrorDst}
-            onChange={(e) => setMirrorTarget(e.target.value as FaceId)}
-          >
+          <select value={mirrorDst} onChange={(e) => setMirrorTarget(e.target.value as FaceId)}>
             {mirrorChoices.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.label}
@@ -230,10 +328,14 @@ export default function App() {
             e.target.value = '';
           }}
         />
-        <button className="btn export" disabled={!ready} onClick={() => {
-          exportPDF(mgr);
-          showToast('PDF downloaded — print at 100% scale on A4');
-        }}>
+        <button
+          className="btn export"
+          disabled={!ready}
+          onClick={() => {
+            exportPDF(mgr);
+            showToast('PDF downloaded — print at 100% scale on A4');
+          }}
+        >
           ⬇ Download A4 PDF
         </button>
       </header>
@@ -254,7 +356,7 @@ export default function App() {
 
         <main className="editor-col">
           <nav className="tabs">
-            {FACES.map((f) => (
+            {geo.faces.map((f) => (
               <button
                 key={f.id}
                 className={`tab ${mgr.active === f.id ? 'active' : ''}`}
@@ -265,18 +367,24 @@ export default function App() {
             ))}
             <div className="spacer" />
             <span className="muted">
-              {active.label} · {Math.round(active.wMM * 10) / 10} × {active.hMM} mm
+              {active.label} · {fmt(active.wMM)} × {fmt(active.hMM)} mm
             </span>
           </nav>
 
           <div className="stage">
-            {FACES.map((f) => (
+            {geo.faces.map((f) => (
               <div
                 key={f.id}
                 className="face-wrap"
                 style={{ display: mgr.active === f.id ? 'flex' : 'none' }}
               >
                 <div className="canvas-holder" style={{ width: f.wPX, height: f.hPX }}>
+                  <GhostLayer
+                    mgr={mgr}
+                    active={f.id}
+                    slices={geo.slices}
+                    visible={ready && ghosts && mgr.active === f.id}
+                  />
                   <canvas
                     ref={(el) => {
                       if (el && !mounted.current.has(f.id)) {
@@ -318,14 +426,20 @@ export default function App() {
           <div className="controls">
             <div className="ctl">
               <span className="muted">Color</span>
-              <input
-                type="color"
-                value={mgr.color}
-                onChange={(e) => mgr.setColor(e.target.value)}
-              />
+              <input type="color" value={mgr.color} onChange={(e) => mgr.setColor(e.target.value)} />
             </div>
             <div className="ctl">
               <span className="muted">Size</span>
+              {BRUSH_PRESETS.map(([label, mm]) => (
+                <button
+                  key={label}
+                  className={`btn sm ${mgr.sizeMm === mm ? 'active' : ''}`}
+                  title={`${label} · ${mm} mm`}
+                  onClick={() => mgr.setSize(mm)}
+                >
+                  {label}
+                </button>
+              ))}
               <input
                 type="range"
                 min={0.5}
@@ -334,7 +448,7 @@ export default function App() {
                 value={mgr.sizeMm}
                 onChange={(e) => mgr.setSize(+e.target.value)}
               />
-              <span className="dim">{mgr.sizeMm} mm</span>
+              <span className="dim">{fmt(mgr.sizeMm)} mm</span>
             </div>
             <label className="ctl muted check">
               <input
@@ -344,15 +458,20 @@ export default function App() {
               />{' '}
               Fill shapes
             </label>
+            <label
+              className="ctl muted check"
+              title="Show the neighboring faces, unfolded flat around this one, to line patterns up across edges"
+            >
+              <input type="checkbox" checked={ghosts} onChange={(e) => setGhosts(e.target.checked)} />{' '}
+              Neighbor shadows
+            </label>
             <div className="ctl">
               <span className="muted">Face background</span>
               <input type="color" value={bg} onChange={(e) => mgr.setBackground(e.target.value)} />
             </div>
             {sel.length > 0 && (
               <div className="sel-group">
-                <span className="dim">
-                  {sel.length > 1 ? `${sel.length} selected` : '1 selected'}
-                </span>
+                <span className="dim">{sel.length > 1 ? `${sel.length} selected` : '1 selected'}</span>
                 {selImage && (
                   <div className="ctl">
                     <span className="muted">Crop</span>
@@ -385,11 +504,7 @@ export default function App() {
                     )}
                   </div>
                 )}
-                <button
-                  className="btn"
-                  title="Clone (Ctrl+D)"
-                  onClick={() => void mgr.cloneSelection()}
-                >
+                <button className="btn" title="Clone (Ctrl+D)" onClick={() => void mgr.cloneSelection()}>
                   ⧉ Clone
                 </button>
                 <button className="btn danger" title="Delete (Del)" onClick={() => mgr.deleteSelection()}>
@@ -405,10 +520,11 @@ export default function App() {
             <span>3D preview</span>
             <span className="dim">drag to orbit · scroll to zoom</span>
           </div>
-          <div className="preview-body">{ready && <Preview3D mgr={mgr} />}</div>
+          <div className="preview-body">{ready && <Preview3D mgr={mgr} slices={geo.slices} />}</div>
           <div className="preview-foot">
-            Prints on one A4 page · slice 100 × 55 mm · solid lines cut, dashed lines fold, blank
-            tabs glue.
+            Prints on one A4 page · slice {fmt(geo.R)} × {fmt(55)} mm ·{' '}
+            {fmt(wedgeDeg(geo.slices))}° wedge · solid lines cut, dashed lines fold, blank tabs
+            glue.
           </div>
         </section>
       </div>

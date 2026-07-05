@@ -12,7 +12,14 @@ import {
   Triangle,
   util,
 } from 'fabric';
-import { FACE, FACES, PX_PER_MM, type FaceId } from './geometry';
+import {
+  buildGeometry,
+  PX_PER_MM,
+  SLICE_OPTIONS,
+  type FaceId,
+  type Geometry,
+  type SliceCount,
+} from './geometry';
 
 declare module 'fabric' {
   interface FabricObject {
@@ -26,6 +33,11 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 
 export type Tool = 'select' | 'brush' | 'rect' | 'ellipse' | 'line' | 'tri';
 export type CropShape = 'square' | 'circle' | 'none';
+
+interface DocState {
+  slices: SliceCount;
+  faces: string[];
+}
 
 interface CreateDrag {
   face: FaceId;
@@ -45,7 +57,7 @@ interface CropRef {
 
 export class EditorManager {
   private canvases = new Map<FaceId, Canvas>();
-  private history: string[][] = [];
+  private history: DocState[] = [];
   private hIndex = -1;
   private suppress = 0;
   private snapTimer: number | undefined;
@@ -54,6 +66,7 @@ export class EditorManager {
   private creating: CreateDrag | null = null;
   private cropRef: CropRef | null = null;
 
+  geo: Geometry = buildGeometry(10);
   active: FaceId = 'side1';
   tool: Tool = 'select';
   editAll = false;
@@ -65,7 +78,7 @@ export class EditorManager {
   onToast: ((msg: string) => void) | null = null;
 
   get ready() {
-    return this.canvases.size === FACES.length;
+    return this.canvases.size === this.geo.faces.length;
   }
 
   canvas(id: FaceId = this.active): Canvas {
@@ -87,7 +100,7 @@ export class EditorManager {
 
   mount(id: FaceId, el: HTMLCanvasElement) {
     if (this.canvases.has(id)) return;
-    const f = FACE[id];
+    const f = this.geo.face[id];
     const c = new Canvas(el, {
       width: f.wPX,
       height: f.hPX,
@@ -128,7 +141,7 @@ export class EditorManager {
     c.on('selection:updated', notify);
     c.on('selection:cleared', notify);
 
-    // drag-to-draw shape tools
+    // drag-to-draw shape tools (the press point anchors a corner)
     c.on('mouse:down', (e) => {
       if (!this.isShapeTool() || this.creating) return;
       const p = e.scenePoint;
@@ -195,11 +208,11 @@ export class EditorManager {
       const s = Math.max(0.15 * m, Math.min(m, r.clipSize * k));
       if (cp.isType('circle')) (cp as Circle).set({ radius: s / 2 });
       else cp.set({ width: s, height: s });
-      const lim = Math.max(0, (o.width - s) / 2);
-      const climY = Math.max(0, (o.height - s) / 2);
+      const limX = Math.max(0, (o.width - s) / 2);
+      const limY = Math.max(0, (o.height - s) / 2);
       cp.set({
-        left: Math.max(-lim, Math.min(lim, cp.left)),
-        top: Math.max(-climY, Math.min(climY, cp.top)),
+        left: Math.max(-limX, Math.min(limX, cp.left)),
+        top: Math.max(-limY, Math.min(limY, cp.top)),
       });
       o.set({ scaleX: r.scaleX, scaleY: r.scaleY, left: r.left, top: r.top });
       o.dirty = true;
@@ -215,8 +228,29 @@ export class EditorManager {
     if (saved) {
       await this.applyState(saved);
     }
-    this.history = [this.serialize()];
+    this.history = [this.currentState()];
     this.hIndex = 0;
+    this.onUpdate?.();
+  }
+
+  // ---------- slice count ----------
+
+  setSlices(n: SliceCount) {
+    if (n === this.geo.slices) return;
+    this.applySlices(n);
+    this.snapshot();
+    this.onToast?.(`${n} slices per cake — wedge ${360 / n}°, faces resized`);
+  }
+
+  private applySlices(n: SliceCount) {
+    this.geo = buildGeometry(n);
+    for (const f of this.geo.faces) {
+      const c = this.canvases.get(f.id);
+      if (!c) continue;
+      c.setDimensions({ width: f.wPX, height: f.hPX });
+      c.calcOffset();
+      c.requestRenderAll();
+    }
     this.onUpdate?.();
   }
 
@@ -337,7 +371,7 @@ export class EditorManager {
     this.onUpdate?.();
   }
 
-  // ---------- shape creation (drag to draw) ----------
+  // ---------- shape creation (drag to draw, corner-anchored) ----------
 
   private shapeStyle() {
     const px = this.sizeMm * PX_PER_MM;
@@ -352,9 +386,9 @@ export class EditorManager {
       case 'rect':
         return new Rect({ left: p.x, top: p.y, width: 1, height: 1, ...st });
       case 'ellipse':
-        return new Ellipse({ left: p.x, top: p.y, rx: 1, ry: 1, originX: 'center', originY: 'center', ...st });
+        return new Ellipse({ left: p.x, top: p.y, rx: 0.5, ry: 0.5, ...st });
       case 'tri':
-        return new Triangle({ left: p.x, top: p.y, width: 1, height: 1, originX: 'center', originY: 'center', ...st });
+        return new Triangle({ left: p.x, top: p.y, width: 1, height: 1, ...st });
       default:
         return new Line([p.x, p.y, p.x, p.y], {
           stroke: this.color,
@@ -366,19 +400,24 @@ export class EditorManager {
 
   private updateShape(d: CreateDrag, p: Point) {
     const { start, obj } = d;
-    const w = Math.abs(p.x - start.x);
-    const h = Math.abs(p.y - start.y);
-    const cx = (start.x + p.x) / 2;
-    const cy = (start.y + p.y) / 2;
-    if (obj.isType('rect')) {
-      obj.set({ left: Math.min(start.x, p.x), top: Math.min(start.y, p.y), width: Math.max(w, 1), height: Math.max(h, 1) });
+    const left = Math.min(start.x, p.x);
+    const top = Math.min(start.y, p.y);
+    const w = Math.max(Math.abs(p.x - start.x), 1);
+    const h = Math.max(Math.abs(p.y - start.y), 1);
+    // Fabric v7 positions objects by their CENTER; anchor the drag's press
+    // corner explicitly so the first click sets a corner, not the center.
+    if (obj.isType('rect') || obj.isType('triangle')) {
+      obj.set({ width: w, height: h });
     } else if (obj.isType('ellipse')) {
-      (obj as Ellipse).set({ left: cx, top: cy, rx: Math.max(w / 2, 0.5), ry: Math.max(h / 2, 0.5) });
-    } else if (obj.isType('triangle')) {
-      obj.set({ left: cx, top: cy, width: Math.max(w, 1), height: Math.max(h, 1) });
+      (obj as Ellipse).set({ rx: w / 2, ry: h / 2 });
     } else {
-      (obj as Line).set({ x2: p.x, y2: p.y });
+      (obj as Line).set({ x1: start.x, y1: start.y, x2: p.x, y2: p.y });
+      obj.setPositionByOrigin(new Point((start.x + p.x) / 2, (start.y + p.y) / 2), 'center', 'center');
+      obj.setCoords();
+      this.canvas(d.face).requestRenderAll();
+      return;
     }
+    obj.setPositionByOrigin(new Point(left + w / 2, top + h / 2), 'center', 'center');
     obj.setCoords();
     this.canvas(d.face).requestRenderAll();
   }
@@ -404,8 +443,11 @@ export class EditorManager {
 
   // ---------- history & persistence ----------
 
-  private serialize(): string[] {
-    return FACES.map((f) => JSON.stringify(this.canvas(f.id).toObject(PROPS)));
+  private currentState(): DocState {
+    return {
+      slices: this.geo.slices,
+      faces: this.geo.faces.map((f) => JSON.stringify(this.canvas(f.id).toObject(PROPS))),
+    };
   }
 
   private scheduleSnapshot() {
@@ -423,9 +465,10 @@ export class EditorManager {
 
   snapshot() {
     this.snapTimer = undefined;
-    const state = this.serialize();
+    const state = this.currentState();
     const prev = this.history[this.hIndex];
-    if (prev && prev.every((s, i) => s === state[i])) return;
+    if (prev && prev.slices === state.slices && prev.faces.every((s, i) => s === state.faces[i]))
+      return;
     this.history.splice(this.hIndex + 1);
     this.history.push(state);
     if (this.history.length > 60) this.history.shift();
@@ -434,7 +477,7 @@ export class EditorManager {
     this.onUpdate?.();
   }
 
-  private saveDoc(state: string[]) {
+  private saveDoc(state: DocState) {
     window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       try {
@@ -445,12 +488,22 @@ export class EditorManager {
     }, 600);
   }
 
-  private loadDoc(): string[] | null {
+  private loadDoc(): DocState | null {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const state = JSON.parse(raw);
-      if (Array.isArray(state) && state.length === FACES.length) return state;
+      if (Array.isArray(state) && state.length === this.geo.faces.length) {
+        return { slices: 12, faces: state }; // legacy format (30° wedge era)
+      }
+      if (
+        state &&
+        SLICE_OPTIONS.includes(state.slices) &&
+        Array.isArray(state.faces) &&
+        state.faces.length === this.geo.faces.length
+      ) {
+        return state as DocState;
+      }
     } catch {
       /* corrupted doc — start fresh */
     }
@@ -473,14 +526,15 @@ export class EditorManager {
     this.saveDoc(this.history[this.hIndex]);
   }
 
-  private async applyState(state: string[]) {
+  private async applyState(state: DocState) {
     this.suppress++;
     try {
-      const live = this.serialize();
-      for (let i = 0; i < FACES.length; i++) {
-        if (state[i] === live[i]) continue;
-        const c = this.canvas(FACES[i].id);
-        await c.loadFromJSON(JSON.parse(state[i]));
+      if (state.slices !== this.geo.slices) this.applySlices(state.slices);
+      const live = this.currentState();
+      for (let i = 0; i < this.geo.faces.length; i++) {
+        if (state.faces[i] === live.faces[i]) continue;
+        const c = this.canvas(this.geo.faces[i].id);
+        await c.loadFromJSON(JSON.parse(state.faces[i]));
         c.requestRenderAll();
       }
     } finally {
@@ -493,7 +547,7 @@ export class EditorManager {
   // ---------- edit-all-faces sync ----------
 
   private otherFaces(src: FaceId): FaceId[] {
-    return FACES.filter((f) => f.id !== src).map((f) => f.id);
+    return this.geo.faces.filter((f) => f.id !== src).map((f) => f.id);
   }
 
   private findBySyncId(id: FaceId, syncId: string): FabricObject | undefined {
@@ -511,17 +565,17 @@ export class EditorManager {
     return out;
   }
 
-  /** Relative scale when mapping content between two faces (like the design's relMap). */
+  /** Relative scale when mapping content between two faces. */
   private faceScale(src: FaceId, dst: FaceId) {
-    const a = FACE[src];
-    const b = FACE[dst];
+    const a = this.geo.face[src];
+    const b = this.geo.face[dst];
     return Math.min(b.wPX / a.wPX, b.hPX / a.hPX);
   }
 
   /** Copy the absolute transform of every modified object to its synced twins. */
   private propagateTransform(src: FaceId, target: FabricObject) {
     const objs = target instanceof ActiveSelection ? target.getObjects() : [target];
-    const sf = FACE[src];
+    const sf = this.geo.face[src];
     for (const o of objs) {
       if (!o.syncId) continue;
       const d = util.qrDecompose(o.calcTransformMatrix());
@@ -530,7 +584,7 @@ export class EditorManager {
       for (const fid of this.otherFaces(src)) {
         const twin = this.findBySyncId(fid, o.syncId);
         if (!twin) continue;
-        const tf = FACE[fid];
+        const tf = this.geo.face[fid];
         const k = this.faceScale(src, fid);
         twin.set({
           angle: d.angle,
@@ -551,10 +605,10 @@ export class EditorManager {
   private async cloneToOtherFaces(src: FaceId, obj: FabricObject, syncId: string) {
     this.suppress++;
     try {
-      const sf = FACE[src];
+      const sf = this.geo.face[src];
       const ctr = obj.getCenterPoint();
       for (const fid of this.otherFaces(src)) {
-        const tf = FACE[fid];
+        const tf = this.geo.face[fid];
         const k = this.faceScale(src, fid);
         const copy = await obj.clone(PROPS);
         copy.syncId = syncId;
@@ -599,16 +653,16 @@ export class EditorManager {
   async addImage(file: File, allFaces: boolean) {
     const dataUrl = await this.readImage(file);
     const linked = allFaces || this.editAll;
-    const targets: FaceId[] = linked ? FACES.map((f) => f.id) : [this.active];
+    const targets: FaceId[] = linked ? this.geo.faces.map((f) => f.id) : [this.active];
     const syncId = linked ? uid() : undefined;
-    const af = FACE[this.active];
+    const af = this.geo.face[this.active];
     this.suppress++;
     try {
       let activeImg: FabricImage | null = null;
       for (const fid of targets) {
         const img = await FabricImage.fromURL(dataUrl);
         const base = Math.min((af.wPX * 0.7) / img.width, (af.hPX * 0.85) / img.height);
-        const f = FACE[fid];
+        const f = this.geo.face[fid];
         const scale = base * (fid === this.active ? 1 : this.faceScale(this.active, fid));
         img.set({ scaleX: scale, scaleY: scale, syncId });
         img.setPositionByOrigin(new Point(f.wPX / 2, f.hPX / 2), 'center', 'center');
@@ -627,7 +681,7 @@ export class EditorManager {
   }
 
   setBackground(color: string) {
-    const targets: FaceId[] = this.editAll ? FACES.map((f) => f.id) : [this.active];
+    const targets: FaceId[] = this.editAll ? this.geo.faces.map((f) => f.id) : [this.active];
     for (const fid of targets) {
       this.canvas(fid).backgroundColor = color;
       this.canvas(fid).requestRenderAll();
@@ -725,7 +779,8 @@ export class EditorManager {
         if (!t.clipPath) continue;
         const tp = t.clipPath as FabricObject;
         tp.set({ left: cp.left, top: cp.top });
-        if (cp.isType('circle') && tp.isType('circle')) (tp as Circle).set({ radius: (cp as Circle).radius });
+        if (cp.isType('circle') && tp.isType('circle'))
+          (tp as Circle).set({ radius: (cp as Circle).radius });
         else tp.set({ width: cp.width, height: cp.height });
         t.dirty = true;
       }
@@ -737,8 +792,8 @@ export class EditorManager {
   /** Copy the active face onto another face, mirrored (like folding the design over). */
   async mirrorTo(dstId: FaceId) {
     if (dstId === this.active) return;
-    const src = FACE[this.active];
-    const dst = FACE[dstId];
+    const src = this.geo.face[this.active];
+    const dst = this.geo.face[dstId];
     const sc = this.canvas(src.id);
     const dc = this.canvas(dstId);
     const k = this.faceScale(src.id, dstId);
