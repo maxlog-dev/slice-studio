@@ -38,6 +38,7 @@ export interface FaceDef {
   hPX: number;
   poly: P[]; // cut shape, local mm coords
   edges: EdgeKind[]; // edge i runs poly[i] -> poly[i+1]
+  verts: string[]; // 3D wedge vertex id of poly[i] (A=apex, P/Q=side1/side2 outer, t/b=top/bottom)
   outline: string; // svg path of poly
   cutPath: string; // cut edges (editor overlay)
   foldPath: string; // fold + tab-fold edges (editor overlay)
@@ -133,6 +134,7 @@ export function buildGeometry(slices: SliceCount): Geometry {
     label: string,
     poly: P[],
     edges: EdgeKind[],
+    verts: string[],
     sheet: { x: number; y: number; rot: number },
   ): FaceDef => {
     const wMM = Math.max(...poly.map((p) => p[0]));
@@ -146,6 +148,7 @@ export function buildGeometry(slices: SliceCount): Geometry {
       hPX: Math.round(hMM * PX_PER_MM),
       poly,
       edges,
+      verts,
       ...paths(poly, edges),
       sheet,
     };
@@ -153,23 +156,37 @@ export function buildGeometry(slices: SliceCount): Geometry {
 
   // placements are relative to side1's origin; centered on the sheet below
   const faces: FaceDef[] = [
-    mk('side1', 'Side A', rect(R), ['fold', 'fold', 'fold', 'cut'], { x: 0, y: 0, rot: 0 }),
-    mk('side2', 'Side B', rect(R), ['fold', 'tab', 'cut', 'cut'], {
+    mk('side1', 'Side A', rect(R), ['fold', 'fold', 'fold', 'cut'], ['At', 'Pt', 'Pb', 'Ab'], {
+      x: 0,
+      y: 0,
+      rot: 0,
+    }),
+    mk('side2', 'Side B', rect(R), ['fold', 'tab', 'cut', 'cut'], ['Qt', 'At', 'Ab', 'Qb'], {
       x: f3(R * cos),
       y: f3(-R * sin),
       rot: 180 - slicesToDeg(slices),
     }),
-    mk('outer', 'Back', rect(f3(chord)), ['cut', 'tab', 'cut', 'fold'], { x: R, y: 0, rot: 0 }),
-    mk('top', 'Top', [[0, f3(topH)], [R, f3(topH)], [f3(R * cos), 0]], ['fold', 'tab', 'fold'], {
-      x: 0,
-      y: f3(-topH),
+    mk('outer', 'Back', rect(f3(chord)), ['cut', 'tab', 'cut', 'fold'], ['Pt', 'Qt', 'Qb', 'Pb'], {
+      x: R,
+      y: 0,
       rot: 0,
     }),
-    mk('bottom', 'Bottom', [[0, 0], [R, 0], [f3(R * cos), f3(topH)]], ['fold', 'tab', 'tab'], {
-      x: 0,
-      y: H,
-      rot: 0,
-    }),
+    mk(
+      'top',
+      'Top',
+      [[0, f3(topH)], [R, f3(topH)], [f3(R * cos), 0]],
+      ['fold', 'tab', 'fold'],
+      ['At', 'Pt', 'Qt'],
+      { x: 0, y: f3(-topH), rot: 0 },
+    ),
+    mk(
+      'bottom',
+      'Bottom',
+      [[0, 0], [R, 0], [f3(R * cos), f3(topH)]],
+      ['fold', 'tab', 'tab'],
+      ['Ab', 'Pb', 'Qb'],
+      { x: 0, y: H, rot: 0 },
+    ),
   ];
   const face = Object.fromEntries(faces.map((f) => [f.id, f])) as Record<FaceId, FaceDef>;
 
@@ -199,6 +216,30 @@ export function buildGeometry(slices: SliceCount): Geometry {
   }
 
   return { slices, R, theta, chord, topH, faces, face };
+}
+
+/** The face that touches edge i of `f` in 3D, with the proper rigid transform
+ * (rotate `rot` rad, then translate `x,y`) laying its local mm frame flat against
+ * f's local frame — i.e. the neighbor unfolded across that shared edge. Both
+ * frames are outside-view, so matching the two shared vertices with a proper
+ * (non-mirroring) isometry is exactly the physical unfolding. */
+export function unfoldNeighbor(
+  geo: Geometry,
+  f: FaceDef,
+  i: number,
+): { n: FaceDef; rot: number; x: number; y: number } {
+  const v1 = f.verts[i];
+  const v2 = f.verts[(i + 1) % f.verts.length];
+  const n = geo.faces.find((g) => g.id !== f.id && g.verts.includes(v1) && g.verts.includes(v2))!;
+  const p1 = f.poly[i];
+  const p2 = f.poly[(i + 1) % f.poly.length];
+  const q1 = n.poly[n.verts.indexOf(v1)];
+  const q2 = n.poly[n.verts.indexOf(v2)];
+  const rot =
+    Math.atan2(p2[1] - p1[1], p2[0] - p1[0]) - Math.atan2(q2[1] - q1[1], q2[0] - q1[0]);
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
+  return { n, rot, x: p1[0] - (q1[0] * c - q1[1] * s), y: p1[1] - (q1[0] * s + q1[1] * c) };
 }
 
 function slicesToDeg(slices: SliceCount) {

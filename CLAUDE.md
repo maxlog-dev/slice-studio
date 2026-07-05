@@ -36,9 +36,14 @@ No backend; autosaves to localStorage key `cake-slice-doc-v1`.
 - `pdf.ts` — `composeSheet` (300dpi offscreen canvas: artwork clipped to poly,
   solid cuts / dashed folds / blank tabs, footer caption) → jsPDF A4.
 - `App.tsx` — Slice Studio UI (top bar, 56px tool rail, face pills, bottom
-  context bar, 400px 3D panel, toasts). `GhostLayer` = neighbor shadows:
-  draws other faces via relative net transform (T_N composed with inv T_A),
-  clipped to `Path2D(outline)`, alpha 0.42; ALWAYS mounted (see invariant below),
+  context bar, 400px 3D panel, toasts). `GhostLayer` = neighbor shadows: for
+  each edge of the active face, draws the face touching it IN 3D via
+  `unfoldNeighbor(geo, f, i)` (geometry.ts: matches shared `FaceDef.verts` ids —
+  At/Ab apex, Pt/Pb/Qt/Qb outer corners — and returns the proper rigid
+  rot/x/y laying the neighbor flat across that edge; NOT the net position),
+  clipped to `Path2D(n.outline)`, alpha 0.42, z-index 6 (ABOVE canvas+overlay,
+  else neighbors inside a triangle face's bbox are hidden; convex faces never
+  intrude past the shared edge); ALWAYS mounted (see invariant below),
   visibility via prop. Keyboard: V/B/R/O/L/T, Ctrl+Z/Y/D/A, Del, Esc.
 
 ## Critical invariants (do not break)

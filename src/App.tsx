@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { EditorManager, type Tool } from './editor';
 import {
-  DEG,
   PX_PER_MM,
   SLICE_OPTIONS,
+  unfoldNeighbor,
   wedgeDeg,
   type FaceId,
   type SliceCount,
@@ -87,7 +87,10 @@ const TOOLS: [Tool, string][] = [
   ['tri', 'Triangle (T)'],
 ];
 
-/** Translucent "unfolded neighbors" around the active face, for pattern matching.
+/** Translucent "unfolded neighbors" around the active face, for pattern matching:
+ * each edge shows the face that touches it in 3D when folded (not its position on
+ * the printed net), unfolded flat across the shared edge. Rendered ABOVE the Fabric
+ * canvas (z-index) so neighbors inside the face's bounding rect stay visible.
  * Always mounted (Fabric re-parents the sibling <canvas>, so conditional React
  * children before it would corrupt reconciliation); visibility gated via props. */
 function GhostLayer({
@@ -117,20 +120,18 @@ function GhostLayer({
       const ctx = cv.getContext('2d')!;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      // map sheet-mm space into the active face's local frame
+      // active face's local mm frame
       ctx.scale(PX_PER_MM, PX_PER_MM);
       ctx.translate(M, M);
-      ctx.rotate(-A.sheet.rot * DEG);
-      ctx.translate(-A.sheet.x, -A.sheet.y);
       ctx.globalAlpha = 0.42;
-      for (const N of geo.faces) {
-        if (N.id === active) continue;
-        const el = mgr.canvas(N.id).lowerCanvasEl;
+      for (let i = 0; i < A.poly.length; i++) {
+        const { n, rot, x, y } = unfoldNeighbor(geo, A, i);
+        const el = mgr.canvas(n.id).lowerCanvasEl;
         ctx.save();
-        ctx.translate(N.sheet.x, N.sheet.y);
-        ctx.rotate(N.sheet.rot * DEG);
-        ctx.clip(new Path2D(N.outline));
-        ctx.drawImage(el, 0, 0, el.width, el.height, 0, 0, N.wMM, N.hMM);
+        ctx.translate(x, y);
+        ctx.rotate(rot);
+        ctx.clip(new Path2D(n.outline));
+        ctx.drawImage(el, 0, 0, el.width, el.height, 0, 0, n.wMM, n.hMM);
         ctx.restore();
       }
     };

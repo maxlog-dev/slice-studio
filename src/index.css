@@ -271,10 +271,13 @@ button:active:not(:disabled) {
   flex: none;
 }
 
+/* above the overlay: neighbors that fall inside the face's bounding rect (e.g.
+   around the triangles) must not be hidden by the canvas background / dim mask;
+   they never intrude past the shared edge (convex faces), so the artwork stays clear */
 .canvas-holder .ghost {
   position: absolute;
   pointer-events: none;
-  z-index: 0;
+  z-index: 6;
 }
 
 .canvas-holder .canvas-container {
