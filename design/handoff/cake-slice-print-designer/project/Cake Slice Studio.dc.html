@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+html,body{margin:0;height:100%;background:#141519;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden}
+*{box-sizing:border-box}
+input[type=range]{accent-color:#e0567a}
+button{transition:filter .12s ease, transform .08s ease}
+button:hover{filter:brightness(1.15)}
+button:active{transform:translateY(0.5px)}
+::selection{background:rgba(224,86,122,.35)}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</helmet>
+<div style="height:100vh;display:grid;grid-template-rows:52px 1fr;color:#e8e9ec">
+  <div data-screen-label="Top bar" style="display:flex;align-items:center;gap:10px;padding:0 14px;background:#1c1d23;border-bottom:1px solid #2a2c34">
+    <div style="display:flex;align-items:center;gap:9px;margin-right:8px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 19 L12 4 L21 19 Z" fill="{{ accent }}" opacity="0.9"></path><path d="M6.5 19 L12 9.5 L17.5 19 Z" fill="#fff" opacity="0.35"></path></svg>
+      <div style="font-weight:700;font-size:14px;letter-spacing:.02em">Slice Studio</div>
+    </div>
+    <div style="width:1px;height:24px;background:#2c2e37"></div>
+    <button title="Undo (Ctrl+Z)" onClick="{{ doUndo }}" style="{{ undoStyle }}">↩ Undo</button>
+    <button title="Redo (Ctrl+Y)" onClick="{{ doRedo }}" style="{{ redoStyle }}">↪ Redo</button>
+    <div style="width:1px;height:24px;background:#2c2e37"></div>
+    <button title="When on: new images and drawings are added to every face, and moving/resizing a linked object updates it on all faces" onClick="{{ toggleEditAll }}" style="{{ editAllStyle }}">⛓ Edit all faces</button>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:4px">
+      <span style="font-size:12px;color:#9a9daa">Mirror {{ faceLabel }} →</span>
+      <select value="{{ mirrorTarget }}" onChange="{{ onMirrorTarget }}" style="height:30px;background:#23252c;color:#e8e9ec;border:1px solid #2f323b;border-radius:7px;font-size:12px;padding:0 6px">
+        <sc-for list="{{ mirrorTargets }}" as="mt" hint-placeholder-count="4"><option value="{{ mt.id }}">{{ mt.label }}</option></sc-for>
+      </select>
+      <button title="Copy this face's design onto the target face, mirrored" onClick="{{ doMirror }}" style="{{ btnStyle }}">⇄ Copy</button>
+    </div>
+    <div style="flex:1"></div>
+    <button onClick="{{ onAddImage }}" style="{{ btnStyle }}">＋ Add image</button>
+    <button title="Add the image to all 5 faces at once (linked)" onClick="{{ onAddImageAll }}" style="{{ btnStyle }}">＋ Image on all faces</button>
+    <input type="file" accept="image/*" ref="{{ fileRef }}" onChange="{{ onFile }}" style="display:none" />
+    <button onClick="{{ doExport }}" style="{{ exportStyle }}">⬇ Download A4 PDF</button>
+  </div>
+  <div style="display:grid;grid-template-columns:56px 1fr 400px;min-height:0">
+    <div data-screen-label="Tool rail" style="background:#1c1d23;border-right:1px solid #2a2c34;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0">
+      <button title="Select / move / resize / rotate (V) — shift-click or drag a box to select several" onClick="{{ pickSelect }}" style="{{ tSelect }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3 L12 20 L14.2 13.2 L21 11 Z"></path></svg></button>
+      <button title="Brush (B)" onClick="{{ pickBrush }}" style="{{ tBrush }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20 C4 15 7 16 9 13 C13 7 17 4 19 5 C21 7 17 11 11 15 C8 17 9 20 4 20 Z"></path></svg></button>
+      <button title="Rectangle (R)" onClick="{{ pickRect }}" style="{{ tRect }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="6" width="16" height="12" rx="1"></rect></svg></button>
+      <button title="Ellipse (O)" onClick="{{ pickEllipse }}" style="{{ tEllipse }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="8" ry="6.5"></ellipse></svg></button>
+      <button title="Line (L)" onClick="{{ pickLine }}" style="{{ tLine }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 19 L19 5"></path></svg></button>
+      <button title="Triangle (T)" onClick="{{ pickTri }}" style="{{ tTri }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 5 L20 19 L4 19 Z"></path></svg></button>
+    </div>
+    <div data-screen-label="2D editor" style="display:flex;flex-direction:column;min-width:0;min-height:0">
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#191a1f;border-bottom:1px solid #24262e">
+        <button onClick="{{ pickFaceSideA }}" style="{{ fSideA }}">Side A</button>
+        <button onClick="{{ pickFaceSideB }}" style="{{ fSideB }}">Side B</button>
+        <button onClick="{{ pickFaceBack }}" style="{{ fBack }}">Back</button>
+        <button onClick="{{ pickFaceTop }}" style="{{ fTop }}">Top</button>
+        <button onClick="{{ pickFaceBottom }}" style="{{ fBottom }}">Bottom</button>
+        <div style="flex:1"></div>
+        <span style="font-size:12px;color:#9a9daa">{{ faceDims }}</span>
+      </div>
+      <div style="flex:1;position:relative;min-height:0">
+        <canvas ref="{{ edRef }}" style="position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none"></canvas>
+        <sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:#2a2c35;border:1px solid #3a3d48;color:#e8e9ec;font-size:12.5px;padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(0,0,0,.4)">{{ toast }}</div>
+        </sc-if>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;padding:0 12px;height:48px;flex:none;background:#191a1f;border-top:1px solid #24262e;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:12px;color:#9a9daa">Color</span>
+          <input type="color" value="{{ color }}" onChange="{{ onColor }}" onInput="{{ onColor }}" style="width:30px;height:26px;border:1px solid #2f323b;border-radius:6px;background:#23252c;padding:2px;cursor:pointer" />
+        </div>
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:12px;color:#9a9daa">Size</span>
+          <input type="range" min="0.5" max="12" step="0.5" value="{{ brushSize }}" onChange="{{ onBrush }}" onInput="{{ onBrush }}" style="width:110px" />
+          <span style="font-size:11px;color:#7c8090;width:38px">{{ brushMm }}</span>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#9a9daa;cursor:pointer">
+          <input type="checkbox" checked="{{ fill }}" onChange="{{ onFill }}" style="accent-color:{{ accent }}" /> Fill shapes
+        </label>
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:12px;color:#9a9daa">Face background</span>
+          <input type="color" value="{{ faceBg }}" onChange="{{ onFaceBg }}" onInput="{{ onFaceBg }}" style="width:30px;height:26px;border:1px solid #2f323b;border-radius:6px;background:#23252c;padding:2px;cursor:pointer" />
+        </div>
+        <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:8px;padding-left:12px;border-left:1px solid #2c2e37">
+            <span style="font-size:11.5px;color:#7c8090">{{ selCount }}</span>
+            <sc-if value="{{ selIsImage }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:5px">
+                <span style="font-size:12px;color:#9a9daa">Crop</span>
+                <button onClick="{{ cropNone }}" style="{{ cNone }}">Off</button>
+                <button onClick="{{ cropSquare }}" style="{{ cSquare }}">▢</button>
+                <button onClick="{{ cropCircle }}" style="{{ cCircle }}">◯</button>
+                <sc-if value="{{ selHasCrop }}" hint-placeholder-val="{{ false }}">
+                  <button title="When on, drag the image to choose which part sits inside the crop" onClick="{{ toggleCropAdjust }}" style="{{ cAdj }}">⊹ Adjust crop</button>
+                </sc-if>
+              </div>
+            </sc-if>
+            <button title="Clone (Ctrl+D)" onClick="{{ doClone }}" style="{{ btnStyle }}">⧉ Clone</button>
+            <button title="Delete (Del)" onClick="{{ doDelete }}" style="{{ delStyle }}">✕ Delete</button>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+    <div data-screen-label="3D preview" style="background:#17181d;border-left:1px solid #2a2c34;display:flex;flex-direction:column;min-height:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #24262e">
+        <span style="font-size:13px;font-weight:600">3D preview</span>
+        <span style="font-size:11px;color:#7c8090">drag to orbit · scroll to zoom</span>
+      </div>
+      <div ref="{{ threeRef }}" style="flex:1;position:relative;min-height:0">
+        <sc-if value="{{ threeStatusOn }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#7c8090;font-size:13px">{{ threeStatus }}</div>
+        </sc-if>
+      </div>
+      <div style="padding:9px 14px;border-top:1px solid #24262e;font-size:11.5px;color:#7c8090;line-height:1.5">Prints on one A4 page · slice 100 × 55 mm · solid lines cut, dashed lines fold, blank tabs glue.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#E0567A&quot;,&quot;options&quot;:[&quot;#E0567A&quot;,&quot;#5A8DE0&quot;,&quot;#53B98A&quot;,&quot;#E0A23F&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;guideStyle&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;standard&quot;,&quot;options&quot;:[&quot;standard&quot;,&quot;minimal&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Print&quot;},&quot;tabDepth&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:8,&quot;min&quot;:5,&quot;max&quot;:12,&quot;step&quot;:1,&quot;unit&quot;:&quot;mm&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Print&quot;}}">
+class Component extends DCLogic {
+  state = { face:'sideA', tool:'select', color:'#e0567a', brushSize:4, fill:true, selIds:[],
+    cropAdjust:false, editAll:false, canUndo:false, canRedo:false,
+    threeStatus:'Loading 3D…', toast:'', mirrorTarget:'sideB' };
+  edRef = React.createRef(); threeRef = React.createRef(); fileRef = React.createRef();
+
+  get G(){
+    if(this._G) return this._G;
+    const C=51.764, X=86.603;
+    const FACES={
+      sideA:{label:'Side A', w:100, h:55, poly:[[0,0],[100,0],[100,55],[0,55]], edges:['fold','cut','fold','tab']},
+      sideB:{label:'Side B', w:100, h:55, poly:[[0,0],[100,0],[100,55],[0,55]], edges:['cut','cut','fold','cut']},
+      back:{label:'Back', w:C, h:55, poly:[[0,0],[C,0],[C,55],[0,55]], edges:['cut','tab','fold','tab']},
+      top:{label:'Top', w:100, h:50, poly:[[0,0],[100,0],[X,50]], edges:['fold','tab','tab']},
+      bottom:{label:'Bottom', w:100, h:50, poly:[[0,0],[100,0],[X,50]], edges:['fold','fold','fold']}
+    };
+    const NET={
+      sideA:[1,0,0,1,0,-55],
+      bottom:[1,0,0,1,0,0],
+      top:[1,0,0,-1,0,-55],
+      sideB:[-0.86603,-0.5,0.5,-0.86603,59.103,97.632],
+      back:[-0.2588,0.9659,-0.9659,-0.2588,153.12,14.234]
+    };
+    this._G={FACES,NET,ORDER:['sideA','sideB','back','top','bottom'],PXMM:8,C,X};
+    return this._G;
+  }
+  uid(){ return Math.random().toString(36).slice(2,10); }
+  applyM(m,p){ return [m[0]*p[0]+m[2]*p[1]+m[4], m[1]*p[0]+m[3]*p[1]+m[5]]; }
+
+  componentDidMount(){
+    const g=this.G;
+    this.doc=this.loadDoc();
+    this.imgCache={}; this.off={}; this.tex=null; this.temp=null; this.drag=null;
+    g.ORDER.forEach(f=>{ const F=g.FACES[f]; const c=document.createElement('canvas');
+      c.width=Math.round(F.w*g.PXMM); c.height=Math.round(F.h*g.PXMM); this.off[f]=c; });
+    Object.keys(this.doc.assets).forEach(id=>this.getImg(id));
+    this.history=[JSON.stringify(this.doc.faces)]; this.hi=0;
+    this.repaintAll();
+    const cv=this.edRef.current;
+    this.ro=new ResizeObserver(()=>this.sizeEditor()); this.ro.observe(cv.parentElement);
+    this.sizeEditor();
+    cv.addEventListener('pointerdown',this.pDown);
+    window.addEventListener('pointermove',this.pMove);
+    window.addEventListener('pointerup',this.pUp);
+    window.addEventListener('keydown',this.onKey);
+    this.initThree(0);
+  }
+  componentWillUnmount(){
+    if(this.ro) this.ro.disconnect();
+    if(this.ro3) this.ro3.disconnect();
+    window.removeEventListener('pointermove',this.pMove);
+    window.removeEventListener('pointerup',this.pUp);
+    window.removeEventListener('keydown',this.onKey);
+    if(this.raf) cancelAnimationFrame(this.raf);
+  }
+
+  freshDoc(){ const faces={}; this.G.ORDER.forEach(f=>faces[f]={bg:'#ffffff',objects:[]}); return {faces,assets:{}}; }
+  loadDoc(){
+    try{ const s=localStorage.getItem('slicebox_doc_v1'); if(s){ const d=JSON.parse(s);
+      if(d && d.faces && d.faces.sideA){ d.assets=d.assets||{}; return d; } } }catch(e){}
+    return this.freshDoc();
+  }
+  saveDoc(){
+    clearTimeout(this._saveT);
+    this._saveT=setTimeout(()=>{
+      try{
+        const used={}; this.G.ORDER.forEach(f=>this.doc.faces[f].objects.forEach(o=>{ if(o.props&&o.props.src) used[o.props.src]=1; }));
+        Object.keys(this.doc.assets).forEach(id=>{ if(!used[id]) delete this.doc.assets[id]; });
+        localStorage.setItem('slicebox_doc_v1', JSON.stringify(this.doc));
+      }catch(e){ this.showToast('Could not auto-save (storage full)'); }
+    },600);
+  }
+  pushHistory(){
+    this.history=this.history.slice(0,this.hi+1);
+    this.history.push(JSON.stringify(this.doc.faces));
+    if(this.history.length>60) this.history.shift();
+    this.hi=this.history.length-1;
+    this.setState({canUndo:this.hi>0,canRedo:false});
+    this.saveDoc();
+  }
+  pushHistoryDebounced(){ clearTimeout(this._histT); this._histT=setTimeout(()=>this.pushHistory(),450); }
+  doUndo=()=>{ if(this.hi<=0) return; this.hi--; this.applySnap(); };
+  doRedo=()=>{ if(this.hi>=this.history.length-1) return; this.hi++; this.applySnap(); };
+  applySnap(){
+    this.doc.faces=JSON.parse(this.history[this.hi]);
+    this.setState({selIds:[],cropAdjust:false,canUndo:this.hi>0,canRedo:this.hi<this.history.length-1});
+    this.repaintAll(); this.saveDoc();
+  }
+
+  getImg(id){
+    if(this.imgCache[id]) return this.imgCache[id];
+    const url=this.doc.assets[id]; if(!url) return null;
+    const im=new Image(); im.onload=()=>this.repaintAll(); im.src=url;
+    this.imgCache[id]=im; return im;
+  }
+
+  drawObject(ctx,o){
+    ctx.save();
+    ctx.translate(o.x,o.y); ctx.rotate(o.rot||0);
+    if(o.flipX) ctx.scale(-1,1);
+    const w=o.w,h=o.h,pr=o.props||{};
+    if(o.type==='image'){
+      const img=this.getImg(pr.src);
+      if(img&&img.complete&&img.naturalWidth){
+        const iw=img.naturalWidth, ih=img.naturalHeight;
+        if(o.crop==='square'||o.crop==='circle'){
+          const f0=Math.max(0.15,Math.min(1,pr.cropF||1));
+          const s=Math.min(w,h)*f0;
+          ctx.beginPath();
+          if(o.crop==='circle') ctx.arc(0,0,s/2,0,6.2832); else ctx.rect(-s/2,-s/2,s,s);
+          ctx.clip();
+          const ss=Math.min(iw,ih)*f0;
+          const sx=(iw-ss)/2*(1+(pr.cropX||0)), sy=(ih-ss)/2*(1+(pr.cropY||0));
+          ctx.drawImage(img,sx,sy,ss,ss,-s/2,-s/2,s,s);
+        } else ctx.drawImage(img,-w/2,-h/2,w,h);
+      } else { ctx.fillStyle='#d8d8d8'; ctx.fillRect(-w/2,-h/2,w,h); }
+    } else if(o.type==='rect'||o.type==='ellipse'||o.type==='tri'){
+      ctx.beginPath();
+      if(o.type==='rect') ctx.rect(-w/2,-h/2,w,h);
+      else if(o.type==='ellipse') ctx.ellipse(0,0,w/2,h/2,0,0,6.2832);
+      else { ctx.moveTo(0,-h/2); ctx.lineTo(w/2,h/2); ctx.lineTo(-w/2,h/2); ctx.closePath(); }
+      if(pr.fill){ ctx.fillStyle=pr.color; ctx.fill(); }
+      else { ctx.strokeStyle=pr.color; ctx.lineWidth=pr.sw||2; ctx.stroke(); }
+    } else if(o.type==='line'){
+      ctx.strokeStyle=pr.color; ctx.lineWidth=pr.sw||2; ctx.lineCap='round';
+      const d=pr.dir||1;
+      ctx.beginPath(); ctx.moveTo(-w/2, d>0?-h/2:h/2); ctx.lineTo(w/2, d>0?h/2:-h/2); ctx.stroke();
+    } else if(o.type==='stroke'){
+      const pts=pr.pts||[]; if(pts.length){
+        ctx.strokeStyle=pr.color; ctx.lineWidth=pr.size||2; ctx.lineCap='round'; ctx.lineJoin='round';
+        ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+        for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+        if(pts.length===1) ctx.lineTo(pts[0][0]+0.01,pts[0][1]);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  repaintFace(f){
+    const g=this.G,F=g.FACES[f],c=this.off[f],ctx=c.getContext('2d');
+    ctx.setTransform(g.PXMM,0,0,g.PXMM,0,0);
+    ctx.clearRect(0,0,F.w,F.h);
+    ctx.fillStyle=this.doc.faces[f].bg||'#ffffff'; ctx.fillRect(0,0,F.w,F.h);
+    this.doc.faces[f].objects.forEach(o=>this.drawObject(ctx,o));
+    if(this.tex&&this.tex[f]) this.tex[f].needsUpdate=true;
+    if(f===this.state.face) this.paintEditor();
+  }
+  repaintAll(){ this.G.ORDER.forEach(f=>this.repaintFace(f)); }
+
+  sizeEditor(){
+    const cv=this.edRef.current; if(!cv) return;
+    const r=cv.parentElement.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    cv.width=Math.max(2,Math.round(r.width*dpr)); cv.height=Math.max(2,Math.round(r.height*dpr));
+    this.dpr=dpr; this.paintEditor();
+  }
+  selObjs(){
+    if(!this.doc) return [];
+    const ids=this.state.selIds;
+    return this.doc.faces[this.state.face].objects.filter(o=>ids.indexOf(o.id)>=0);
+  }
+  selSingle(){ const s=this.selObjs(); return s.length===1?s[0]:null; }
+  objCorners(o){
+    const c=Math.cos(o.rot||0), s=Math.sin(o.rot||0);
+    return [[-o.w/2,-o.h/2],[o.w/2,-o.h/2],[o.w/2,o.h/2],[-o.w/2,o.h/2]]
+      .map(p=>[o.x+p[0]*c-p[1]*s, o.y+p[0]*s+p[1]*c]);
+  }
+  groupBBox(objs){
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    objs.forEach(o=>this.objCorners(o).forEach(p=>{
+      x0=Math.min(x0,p[0]);y0=Math.min(y0,p[1]);x1=Math.max(x1,p[0]);y1=Math.max(y1,p[1]);}));
+    return {x0,y0,x1,y1,cx:(x0+x1)/2,cy:(y0+y1)/2};
+  }
+  paintEditor(){
+    const cv=this.edRef.current; if(!cv||!this.off) return;
+    const g=this.G,f=this.state.face,F=g.FACES[f];
+    const dpr=this.dpr||1, W=cv.width/dpr, H=cv.height/dpr;
+    const ctx=cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.fillStyle='#131418'; ctx.fillRect(0,0,W,H);
+    const S=Math.min((W-100)/F.w,(H-80)/F.h);
+    const ox=(W-F.w*S)/2, oy=(H-F.h*S)/2;
+    this.view={S,ox,oy};
+    ctx.save();
+    ctx.setTransform(dpr*S,0,0,dpr*S,dpr*ox,dpr*oy);
+    ctx.beginPath(); F.poly.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.closePath();
+    ctx.save(); ctx.clip();
+    ctx.drawImage(this.off[f],0,0,this.off[f].width,this.off[f].height,0,0,F.w,F.h);
+    if(this.temp) this.drawObject(ctx,this.temp);
+    ctx.restore(); ctx.restore();
+    for(let i=0;i<F.poly.length;i++){
+      const a=F.poly[i], b=F.poly[(i+1)%F.poly.length], cls=F.edges[i];
+      ctx.beginPath();
+      ctx.moveTo(ox+a[0]*S,oy+a[1]*S); ctx.lineTo(ox+b[0]*S,oy+b[1]*S);
+      ctx.setLineDash(cls==='fold'?[6,5]:[]);
+      ctx.strokeStyle=cls==='fold'?'#5b6070':'#454a57'; ctx.lineWidth=1.4; ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    const ac=(this.props.accentColor??'#E0567A');
+    const sel=this.selObjs();
+    const scr=p=>[ox+p[0]*S,oy+p[1]*S];
+    const handleSq=p=>{ ctx.beginPath(); ctx.rect(p[0]-4.5,p[1]-4.5,9,9); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle=ac; ctx.stroke(); };
+    if(sel.length===1){
+      const o=sel[0];
+      const cs=this.objCorners(o).map(scr);
+      ctx.beginPath(); cs.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.closePath();
+      ctx.strokeStyle=ac; ctx.lineWidth=1.4; ctx.stroke();
+      cs.forEach(handleSq);
+      const rh=this.rotHandlePos();
+      const tc=[(cs[0][0]+cs[1][0])/2,(cs[0][1]+cs[1][1])/2];
+      ctx.beginPath(); ctx.moveTo(tc[0],tc[1]); ctx.lineTo(rh[0],rh[1]); ctx.strokeStyle=ac; ctx.stroke();
+      ctx.beginPath(); ctx.arc(rh[0],rh[1],5.5,0,6.2832); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle=ac; ctx.stroke();
+      if(this.state.cropAdjust&&o.type==='image'&&o.crop!=='none'){
+        const sMm=Math.min(o.w,o.h)*Math.max(0.15,Math.min(1,o.props.cropF||1));
+        const ctr=scr([o.x,o.y]);
+        ctx.save(); ctx.translate(ctr[0],ctr[1]); ctx.rotate(o.rot||0);
+        ctx.setLineDash([5,4]); ctx.strokeStyle=ac; ctx.lineWidth=1.2;
+        ctx.beginPath();
+        if(o.crop==='circle') ctx.arc(0,0,sMm*S/2,0,6.2832); else ctx.rect(-sMm*S/2,-sMm*S/2,sMm*S,sMm*S);
+        ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+        ctx.fillStyle=ac; ctx.font='11px sans-serif'; ctx.textAlign='center';
+        ctx.fillText('drag image to reposition crop · corner handles resize crop', (cs[0][0]+cs[2][0])/2, cs[2][1]+16);
+      }
+    } else if(sel.length>1){
+      sel.forEach(o=>{
+        const cs=this.objCorners(o).map(scr);
+        ctx.beginPath(); cs.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.closePath();
+        ctx.strokeStyle=ac; ctx.lineWidth=1; ctx.globalAlpha=0.6; ctx.stroke(); ctx.globalAlpha=1;
+      });
+      const bb=this.groupBBox(sel);
+      const p0=scr([bb.x0,bb.y0]), p1=scr([bb.x1,bb.y1]);
+      ctx.setLineDash([5,4]);
+      ctx.strokeStyle=ac; ctx.lineWidth=1.4;
+      ctx.strokeRect(p0[0]-3,p0[1]-3,p1[0]-p0[0]+6,p1[1]-p0[1]+6);
+      ctx.setLineDash([]);
+      [[p0[0]-3,p0[1]-3],[p1[0]+3,p0[1]-3],[p1[0]+3,p1[1]+3],[p0[0]-3,p1[1]+3]].forEach(handleSq);
+      const rh=this.rotHandlePos();
+      ctx.beginPath(); ctx.moveTo((p0[0]+p1[0])/2,p0[1]-3); ctx.lineTo(rh[0],rh[1]); ctx.strokeStyle=ac; ctx.stroke();
+      ctx.beginPath(); ctx.arc(rh[0],rh[1],5.5,0,6.2832); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle=ac; ctx.stroke();
+    }
+    if(this.drag&&this.drag.mode==='marquee'){
+      const a=scr([this.drag.start.x,this.drag.start.y]), b=scr([this.drag.cur.x,this.drag.cur.y]);
+      ctx.setLineDash([4,3]); ctx.strokeStyle=ac; ctx.lineWidth=1;
+      ctx.strokeRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));
+      ctx.setLineDash([]);
+      ctx.fillStyle='rgba(224,86,122,0.08)';
+      ctx.fillRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));
+    }
+  }
+  rotHandlePos(){
+    const {S,ox,oy}=this.view, sel=this.selObjs();
+    if(sel.length===1){
+      const o=sel[0];
+      const c=Math.cos(o.rot||0), s=Math.sin(o.rot||0);
+      const t=[o.x+(o.h/2)*s, o.y-(o.h/2)*c];
+      return [ox+t[0]*S+s*24, oy+t[1]*S-c*24];
+    }
+    const bb=this.groupBBox(sel);
+    return [ox+bb.cx*S, oy+bb.y0*S-27];
+  }
+  toMM(e){
+    const cv=this.edRef.current, r=cv.getBoundingClientRect(), v=this.view||{S:1,ox:0,oy:0};
+    return {x:(e.clientX-r.left-v.ox)/v.S, y:(e.clientY-r.top-v.oy)/v.S};
+  }
+  localPt(o,p){
+    let dx=p.x-o.x, dy=p.y-o.y;
+    const c=Math.cos(-(o.rot||0)), s=Math.sin(-(o.rot||0));
+    let lx=dx*c-dy*s, ly=dx*s+dy*c;
+    if(o.flipX) lx=-lx;
+    return {x:lx,y:ly};
+  }
+  hitObj(o,p){
+    const l=this.localPt(o,p);
+    const pad=(o.type==='stroke'||o.type==='line')?Math.max(2,(o.props.sw||o.props.size||2)):1.5;
+    return Math.abs(l.x)<=o.w/2+pad && Math.abs(l.y)<=o.h/2+pad;
+  }
+  objAt(p){
+    const os=this.doc.faces[this.state.face].objects;
+    for(let i=os.length-1;i>=0;i--) if(this.hitObj(os[i],p)) return os[i];
+    return null;
+  }
+  handleAt(e){
+    const sel=this.selObjs(); if(!sel.length) return null;
+    const cv=this.edRef.current, r=cv.getBoundingClientRect();
+    const px=e.clientX-r.left, py=e.clientY-r.top;
+    const {S,ox,oy}=this.view;
+    const rh=this.rotHandlePos();
+    if(Math.hypot(px-rh[0],py-rh[1])<11) return {type:'rot'};
+    let corners;
+    if(sel.length===1) corners=this.objCorners(sel[0]).map(p=>[ox+p[0]*S,oy+p[1]*S]);
+    else {
+      const bb=this.groupBBox(sel);
+      corners=[[bb.x0,bb.y0],[bb.x1,bb.y0],[bb.x1,bb.y1],[bb.x0,bb.y1]].map(p=>[ox+p[0]*S,oy+p[1]*S]);
+    }
+    for(let i=0;i<4;i++) if(Math.hypot(px-corners[i][0],py-corners[i][1])<11) return {type:'scale'};
+    return null;
+  }
+  snapSel(sel){
+    return sel.map(o=>({o, x0:o.x, y0:o.y, rot0:o.rot||0, w0:o.w, h0:o.h,
+      pts0:o.type==='stroke'?o.props.pts.map(q=>[q[0],q[1]]):null}));
+  }
+
+  pDown=(e)=>{
+    if(e.button!==0) return;
+    const p=this.toMM(e), t=this.state.tool;
+    if(t==='select'){
+      const sel=this.selObjs();
+      if(sel.length){
+        const h=this.handleAt(e);
+        if(h){
+          const bb=this.groupBBox(sel);
+          const snap=this.snapSel(sel);
+          if(h.type==='rot'){
+            const a=Math.atan2(p.y-bb.cy,p.x-bb.cx);
+            this.drag={mode:'rotate',snap,cx:bb.cx,cy:bb.cy,a0:a,single:sel.length===1,moved:false};
+          } else if(this.state.cropAdjust&&sel.length===1&&sel[0].type==='image'&&sel[0].crop!=='none'){
+            const o1=sel[0];
+            const d0=Math.max(0.5,Math.hypot(p.x-o1.x,p.y-o1.y));
+            this.drag={mode:'cropsize',o:o1,d0,f0:Math.max(0.15,Math.min(1,o1.props.cropF||1)),moved:false};
+          } else {
+            const d0=Math.max(0.5,Math.hypot(p.x-bb.cx,p.y-bb.cy));
+            this.drag={mode:'scale',snap,cx:bb.cx,cy:bb.cy,d0,single:sel.length===1,
+              uniform:sel.length>1||sel[0].type==='image',moved:false};
+          }
+          e.preventDefault(); return;
+        }
+      }
+      const single=this.selSingle();
+      if(this.state.cropAdjust&&single&&single.type==='image'&&single.crop!=='none'&&this.hitObj(single,p)){
+        const l=this.localPt(single,p);
+        this.drag={mode:'crop',o:single,l0:l,cx0:single.props.cropX||0,cy0:single.props.cropY||0,moved:false};
+        e.preventDefault(); return;
+      }
+      const hit=this.objAt(p);
+      if(hit){
+        let ids=this.state.selIds.slice();
+        if(e.shiftKey){
+          const i=ids.indexOf(hit.id);
+          if(i>=0) ids.splice(i,1); else ids.push(hit.id);
+          this.setSel(ids);
+        } else {
+          if(ids.indexOf(hit.id)<0){ ids=[hit.id]; this.setSel(ids); }
+          const sobjs=this.doc.faces[this.state.face].objects.filter(o=>ids.indexOf(o.id)>=0);
+          this.drag={mode:'maybemove',p0:p,px:e.clientX,py:e.clientY,snap:this.snapSel(sobjs),moved:false};
+        }
+      } else {
+        if(!e.shiftKey) this.setSel([]);
+        this.drag={mode:'marquee',start:p,cur:p,add:e.shiftKey};
+      }
+      this.paintEditor();
+    } else if(t==='brush'){
+      this.temp={type:'stroke',x:0,y:0,w:0,h:0,rot:0,props:{pts:[[p.x,p.y]],color:this.state.color,size:this.state.brushSize}};
+      this.drag={mode:'brush'};
+      this.paintEditor();
+    } else {
+      this.drag={mode:'create',start:p};
+      this.temp=null;
+    }
+    e.preventDefault();
+  };
+  pMove=(e)=>{
+    if(!this.drag) return;
+    const p=this.toMM(e), d=this.drag;
+    if(d.mode==='maybemove'){
+      if(Math.hypot(e.clientX-d.px,e.clientY-d.py)>3){ d.mode='move'; } else return;
+    }
+    if(d.mode==='move'){
+      const dx=p.x-d.p0.x, dy=p.y-d.p0.y;
+      d.snap.forEach(s=>{ s.o.x=s.x0+dx; s.o.y=s.y0+dy; });
+      d.moved=true; this.repaintFace(this.state.face);
+    }
+    else if(d.mode==='rotate'){
+      let da=Math.atan2(p.y-d.cy,p.x-d.cx)-d.a0;
+      if(e.shiftKey) da=Math.round(da/(Math.PI/12))*(Math.PI/12);
+      const c=Math.cos(da), s=Math.sin(da);
+      d.snap.forEach(sn=>{
+        if(d.single){ sn.o.rot=sn.rot0+da; }
+        else {
+          const rx=sn.x0-d.cx, ry=sn.y0-d.cy;
+          sn.o.x=d.cx+rx*c-ry*s; sn.o.y=d.cy+rx*s+ry*c;
+          sn.o.rot=sn.rot0+da;
+        }
+      });
+      d.moved=true; this.repaintFace(this.state.face);
+    }
+    else if(d.mode==='scale'){
+      if(d.single&&!d.uniform){
+        const sn=d.snap[0], l=this.localPt(sn.o,p);
+        sn.o.w=Math.max(2,Math.abs(l.x)*2); sn.o.h=Math.max(2,Math.abs(l.y)*2);
+      } else {
+        const k=Math.max(0.05,Math.hypot(p.x-d.cx,p.y-d.cy)/d.d0);
+        d.snap.forEach(sn=>{
+          sn.o.w=Math.max(1,sn.w0*k); sn.o.h=Math.max(1,sn.h0*k);
+          if(!d.single){ sn.o.x=d.cx+(sn.x0-d.cx)*k; sn.o.y=d.cy+(sn.y0-d.cy)*k; }
+          if(sn.pts0) sn.o.props.pts=sn.pts0.map(q=>[q[0]*k,q[1]*k]);
+          if(sn.o.type==='stroke') sn.o.props.size=Math.max(0.3,(sn.o.props.size||2));
+        });
+      }
+      d.moved=true; this.repaintFace(this.state.face);
+    }
+    else if(d.mode==='cropsize'){
+      const k=Math.hypot(p.x-d.o.x,p.y-d.o.y)/d.d0;
+      d.o.props.cropF=Math.max(0.15,Math.min(1,d.f0*k));
+      d.moved=true; this.repaintFace(this.state.face);
+    }
+    else if(d.mode==='crop'){
+      const o=d.o, img=this.getImg(o.props.src);
+      if(img&&img.naturalWidth){
+        const f0=Math.max(0.15,Math.min(1,o.props.cropF||1));
+        const iw=img.naturalWidth, ih=img.naturalHeight, ss=Math.min(iw,ih)*f0;
+        const s=Math.min(o.w,o.h)*f0, pxPerMm=ss/s;
+        const l=this.localPt(o,p);
+        const dlx=l.x-d.l0.x, dly=l.y-d.l0.y;
+        if(iw>ss) o.props.cropX=Math.max(-1,Math.min(1,d.cx0 - dlx*pxPerMm/((iw-ss)/2)));
+        if(ih>ss) o.props.cropY=Math.max(-1,Math.min(1,d.cy0 - dly*pxPerMm/((ih-ss)/2)));
+        d.moved=true; this.repaintFace(this.state.face);
+      }
+    }
+    else if(d.mode==='marquee'){ d.cur=p; this.paintEditor(); }
+    else if(d.mode==='brush'){ this.temp.props.pts.push([p.x,p.y]); this.paintEditor(); }
+    else if(d.mode==='create'){
+      const s=d.start, t=this.state.tool;
+      const x=(s.x+p.x)/2, y=(s.y+p.y)/2, w=Math.abs(p.x-s.x), h=Math.abs(p.y-s.y);
+      this.temp={type:t==='rect'?'rect':t==='ellipse'?'ellipse':t==='tri'?'tri':'line',
+        x,y,w:Math.max(w,0.1),h:Math.max(h,0.1),rot:0,
+        props:{color:this.state.color,fill:this.state.fill&&t!=='line',sw:this.state.brushSize,
+          dir:((p.x-s.x)*(p.y-s.y)>=0)?1:-1}};
+      this.paintEditor();
+    }
+  };
+  pUp=(e)=>{
+    const d=this.drag; if(!d) return;
+    this.drag=null;
+    if(d.mode==='brush'||d.mode==='create'){
+      const t=this.temp; this.temp=null;
+      if(t){
+        if(t.type==='stroke'){
+          const pts=t.props.pts;
+          if(pts.length>=2){
+            let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+            pts.forEach(q=>{x0=Math.min(x0,q[0]);y0=Math.min(y0,q[1]);x1=Math.max(x1,q[0]);y1=Math.max(y1,q[1]);});
+            const cx=(x0+x1)/2, cy=(y0+y1)/2, sz=t.props.size;
+            t.x=cx; t.y=cy; t.w=Math.max(1,x1-x0+sz); t.h=Math.max(1,y1-y0+sz);
+            t.props.pts=pts.map(q=>[q[0]-cx,q[1]-cy]);
+            this.addObject(t);
+          } else this.paintEditor();
+        } else if(Math.max(t.w,t.h)>2) this.addObject(t);
+        else this.paintEditor();
+      } else this.paintEditor();
+    }
+    else if(d.mode==='marquee'){
+      const a=d.start, b=d.cur||d.start;
+      const x0=Math.min(a.x,b.x), y0=Math.min(a.y,b.y), x1=Math.max(a.x,b.x), y1=Math.max(a.y,b.y);
+      if(Math.max(x1-x0,y1-y0)>1){
+        const hits=this.doc.faces[this.state.face].objects.filter(o=>{
+          const cs=this.objCorners(o);
+          let ox0=1e9,oy0=1e9,ox1=-1e9,oy1=-1e9;
+          cs.forEach(q=>{ox0=Math.min(ox0,q[0]);oy0=Math.min(oy0,q[1]);ox1=Math.max(ox1,q[0]);oy1=Math.max(oy1,q[1]);});
+          return ox0<x1&&ox1>x0&&oy0<y1&&oy1>y0;
+        }).map(o=>o.id);
+        let ids=d.add?this.state.selIds.slice():[];
+        hits.forEach(id=>{ if(ids.indexOf(id)<0) ids.push(id); });
+        this.setSel(ids);
+      }
+      this.paintEditor();
+    }
+    else if(d.mode==='move'||d.mode==='rotate'||d.mode==='scale'||d.mode==='crop'||d.mode==='cropsize'){
+      if(d.moved){
+        if(this.state.editAll){
+          const objs=d.o?[d.o]:d.snap.map(s=>s.o);
+          objs.forEach(o=>{ if(o.linkId) this.syncLinked(o); });
+        }
+        this.pushHistory();
+      }
+    }
+  };
+  setSel(ids,cb){ this.setState({selIds:ids,cropAdjust:false},()=>{ this.paintEditor(); if(cb)cb(); }); }
+  onKey=(e)=>{
+    const tag=(e.target&&e.target.tagName)||'';
+    if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
+    const k=e.key.toLowerCase();
+    if((e.ctrlKey||e.metaKey)&&k==='z'){ e.preventDefault(); e.shiftKey?this.doRedo():this.doUndo(); }
+    else if((e.ctrlKey||e.metaKey)&&k==='y'){ e.preventDefault(); this.doRedo(); }
+    else if((e.ctrlKey||e.metaKey)&&k==='d'){ e.preventDefault(); this.doClone(); }
+    else if((e.ctrlKey||e.metaKey)&&k==='a'){ e.preventDefault();
+      this.setSel(this.doc.faces[this.state.face].objects.map(o=>o.id)); }
+    else if(k==='delete'||k==='backspace'){ if(this.state.selIds.length){ e.preventDefault(); this.doDelete(); } }
+    else if(k==='escape') this.setSel([]);
+    else if(k==='v') this.setTool('select');
+    else if(k==='b') this.setTool('brush');
+    else if(k==='r') this.setTool('rect');
+    else if(k==='o') this.setTool('ellipse');
+    else if(k==='l') this.setTool('line');
+    else if(k==='t') this.setTool('tri');
+  };
+
+  relMap(o,f1,f2){
+    const g=this.G,A=g.FACES[f1],B=g.FACES[f2];
+    const s=Math.min(B.w/A.w,B.h/A.h);
+    const n=JSON.parse(JSON.stringify(o));
+    n.x=o.x/A.w*B.w; n.y=o.y/A.h*B.h; n.w=o.w*s; n.h=o.h*s;
+    if(n.type==='stroke') n.props.pts=o.props.pts.map(q=>[q[0]*s,q[1]*s]);
+    return n;
+  }
+  addObject(o){
+    o.id=this.uid(); o.crop=o.crop||'none';
+    const f=this.state.face;
+    if(this.state.editAll){
+      o.linkId=this.uid();
+      this.G.ORDER.forEach(f2=>{
+        if(f2===f) return;
+        const n=this.relMap(o,f,f2); n.id=this.uid(); n.linkId=o.linkId;
+        this.doc.faces[f2].objects.push(n);
+      });
+    }
+    this.doc.faces[f].objects.push(o);
+    this.repaintAll();
+    this.setSel([o.id]);
+    this.pushHistory();
+  }
+  syncLinked(o){
+    const f=this.state.face;
+    this.G.ORDER.forEach(f2=>{
+      if(f2===f) return;
+      const t=this.doc.faces[f2].objects.find(q=>q.linkId===o.linkId);
+      if(!t) return;
+      const m=this.relMap(o,f,f2);
+      t.x=m.x; t.y=m.y; t.w=m.w; t.h=m.h; t.rot=o.rot; t.crop=o.crop; t.flipX=o.flipX;
+      t.props=JSON.parse(JSON.stringify(o.props));
+      if(t.type==='stroke') t.props.pts=m.props.pts;
+      this.repaintFace(f2);
+    });
+  }
+  doClone=()=>{
+    const sel=this.selObjs(); if(!sel.length) return;
+    const ids=[];
+    sel.forEach(o=>{
+      const n=JSON.parse(JSON.stringify(o)); n.id=this.uid(); delete n.linkId;
+      n.x+=4; n.y+=4; ids.push(n.id);
+      this.doc.faces[this.state.face].objects.push(n);
+    });
+    this.repaintFace(this.state.face);
+    this.setSel(ids);
+    this.pushHistory();
+  };
+  doDelete=()=>{
+    const sel=this.selObjs(); if(!sel.length) return;
+    const f=this.state.face;
+    const ids=sel.map(o=>o.id), links=sel.filter(o=>o.linkId).map(o=>o.linkId);
+    this.doc.faces[f].objects=this.doc.faces[f].objects.filter(q=>ids.indexOf(q.id)<0);
+    if(this.state.editAll&&links.length) this.G.ORDER.forEach(f2=>{
+      this.doc.faces[f2].objects=this.doc.faces[f2].objects.filter(q=>links.indexOf(q.linkId)<0);
+    });
+    this.setSel([]);
+    this.repaintAll(); this.pushHistory();
+  };
+  setCrop(c){
+    const o=this.selSingle(); if(!o||o.type!=='image') return;
+    o.crop=c;
+    if(c==='none'){ o.props.cropX=0; o.props.cropY=0; o.props.cropF=1; this.setState({cropAdjust:false}); }
+    if(this.state.editAll&&o.linkId) this.syncLinked(o);
+    this.repaintFace(this.state.face); this.forceUpdate(); this.pushHistory();
+  }
+  toggleCropAdjust=()=>{ this.setState({cropAdjust:!this.state.cropAdjust},()=>this.paintEditor()); };
+  doMirror=()=>{
+    const src=this.state.face, dst=this.state.mirrorTarget;
+    if(!dst||dst===src) return;
+    const g=this.G,A=g.FACES[src];
+    this.doc.faces[dst].bg=this.doc.faces[src].bg;
+    this.doc.faces[dst].objects=this.doc.faces[src].objects.map(o=>{
+      const n=this.relMap(o,src,dst);
+      n.id=this.uid(); delete n.linkId;
+      n.x=g.FACES[dst].w-n.x; n.rot=-(o.rot||0); n.flipX=!o.flipX;
+      return n;
+    });
+    this.repaintFace(dst); this.pushHistory();
+    this.showToast(A.label+' copied to '+g.FACES[dst].label+' (mirrored)');
+  };
+  showToast(m){
+    this.setState({toast:m});
+    clearTimeout(this._toastT);
+    this._toastT=setTimeout(()=>this.setState({toast:''}),2600);
+  }
+
+  onAddImage=()=>{ this.pendingAll=false; this.fileRef.current.click(); };
+  onAddImageAll=()=>{ this.pendingAll=true; this.fileRef.current.click(); };
+  onFile=(e)=>{
+    const file=e.target.files&&e.target.files[0]; e.target.value='';
+    if(!file) return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      const im=new Image();
+      im.onload=()=>{
+        const mx=1200, k=Math.min(1,mx/Math.max(im.width,im.height));
+        const c=document.createElement('canvas');
+        c.width=Math.max(1,Math.round(im.width*k)); c.height=Math.max(1,Math.round(im.height*k));
+        c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+        const url=c.toDataURL('image/png');
+        const id='a'+this.uid();
+        this.doc.assets[id]=url;
+        const cim=new Image(); cim.src=url; this.imgCache[id]=cim;
+        const g=this.G,F=g.FACES[this.state.face];
+        let w=F.w*0.7, h=w*c.height/c.width;
+        if(h>F.h*0.85){ h=F.h*0.85; w=h*c.width/c.height; }
+        const o={type:'image',x:F.w/2,y:F.h/2,w,h,rot:0,crop:'none',props:{src:id,cropX:0,cropY:0}};
+        const all=this.pendingAll;
+        cim.onload=()=>{
+          const keep=this.state.editAll;
+          if(all!==this.state.editAll) this.setState({editAll:all},()=>{ this.addObject(o); this.setState({editAll:keep}); });
+          else this.addObject(o);
+        };
+      };
+      im.src=rd.result;
+    };
+    rd.readAsDataURL(file);
+  };
+
+  setTool(t){ this.setState({tool:t,selIds:t==='select'?this.state.selIds:[],cropAdjust:false},()=>this.paintEditor()); }
+  setFace(f){
+    let mt=this.state.mirrorTarget;
+    if(mt===f) mt=this.G.ORDER.find(x=>x!==f);
+    this.setState({face:f,selIds:[],cropAdjust:false,mirrorTarget:mt},()=>this.paintEditor());
+  }
+  onColor=(e)=>{
+    const v=e.target.value;
+    const sel=this.selObjs().filter(o=>o.type!=='image');
+    if(sel.length){
+      sel.forEach(o=>{ o.props.color=v; if(this.state.editAll&&o.linkId) this.syncLinked(o); });
+      this.repaintFace(this.state.face); this.pushHistoryDebounced();
+    }
+    this.setState({color:v});
+  };
+  onBrush=(e)=>{
+    const v=parseFloat(e.target.value);
+    const sel=this.selObjs().filter(o=>o.type!=='image');
+    if(sel.length){
+      sel.forEach(o=>{
+        if(o.type==='stroke') o.props.size=v;
+        else if(!o.props.fill||o.type==='line') o.props.sw=v;
+        if(this.state.editAll&&o.linkId) this.syncLinked(o);
+      });
+      this.repaintFace(this.state.face); this.pushHistoryDebounced();
+    }
+    this.setState({brushSize:v});
+  };
+  onFill=(e)=>{ this.setState({fill:e.target.checked}); };
+  onFaceBg=(e)=>{
+    const v=e.target.value;
+    if(this.state.editAll){ this.G.ORDER.forEach(f=>this.doc.faces[f].bg=v); this.repaintAll(); }
+    else { this.doc.faces[this.state.face].bg=v; this.repaintFace(this.state.face); }
+    this.pushHistoryDebounced(); this.forceUpdate();
+  };
+  onMirrorTarget=(e)=>this.setState({mirrorTarget:e.target.value});
+  toggleEditAll=()=>this.setState({editAll:!this.state.editAll});
+
+  // ---------- 3D ----------
+  initThree(n){
+    if(!window.THREE){
+      if(n>50){ this.setState({threeStatus:'3D preview unavailable (script failed to load)'}); return; }
+      setTimeout(()=>this.initThree(n+1),200); return;
+    }
+    const T=window.THREE, el=this.threeRef.current; if(!el) return;
+    const renderer=new T.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(window.devicePixelRatio||1);
+    renderer.setSize(el.clientWidth||300, el.clientHeight||300);
+    renderer.domElement.style.position='absolute';
+    renderer.domElement.style.inset='0';
+    el.appendChild(renderer.domElement);
+    const scene=new T.Scene(); scene.background=new T.Color('#1a1b21');
+    this.tex={};
+    const mats=this.G.ORDER.map(f=>{
+      const tx=new T.CanvasTexture(this.off[f]);
+      tx.minFilter=T.LinearFilter; tx.anisotropy=4;
+      this.tex[f]=tx;
+      return new T.MeshLambertMaterial({map:tx});
+    });
+    const X=this.G.X;
+    const a0=[0,0,0],p1b=[100,0,0],p2b=[X,0,50],a1=[0,55,0],p1t=[100,55,0],p2t=[X,55,50];
+    const V=[], UV=[];
+    const push=(p,u,v)=>{ V.push(p[0],p[1],p[2]); UV.push(u,v); };
+    push(a0,0,0); push(a1,0,1); push(p1t,1,1);  push(a0,0,0); push(p1t,1,1); push(p1b,1,0);
+    push(p2b,0,0); push(p2t,0,1); push(a1,1,1);  push(p2b,0,0); push(a1,1,1); push(a0,1,0);
+    push(p1b,0,0); push(p1t,0,1); push(p2t,1,1);  push(p1b,0,0); push(p2t,1,1); push(p2b,1,0);
+    push(a1,0,1); push(p2t,X/100,0); push(p1t,1,1);
+    push(a0,0,1); push(p1b,1,1); push(p2b,X/100,0);
+    const geo=new T.BufferGeometry();
+    geo.setAttribute('position',new T.Float32BufferAttribute(V,3));
+    geo.setAttribute('uv',new T.Float32BufferAttribute(UV,2));
+    geo.addGroup(0,6,0); geo.addGroup(6,6,1); geo.addGroup(12,6,2); geo.addGroup(18,3,3); geo.addGroup(21,3,4);
+    geo.computeVertexNormals();
+    const mesh=new T.Mesh(geo,mats); scene.add(mesh);
+    const eg=new T.LineSegments(new T.EdgesGeometry(geo,30), new T.LineBasicMaterial({color:0x3a3d47}));
+    scene.add(eg);
+    const plate=new T.Mesh(new T.CircleGeometry(140,48), new T.MeshLambertMaterial({color:0x24262d}));
+    plate.rotation.x=-Math.PI/2; plate.position.set(55,-0.5,18); scene.add(plate);
+    scene.add(new T.HemisphereLight(0xffffff,0x3a3c46,0.95));
+    const dl=new T.DirectionalLight(0xffffff,0.65); dl.position.set(120,220,90); scene.add(dl);
+    const cam=new T.PerspectiveCamera(38,(el.clientWidth||300)/(el.clientHeight||300),1,3000);
+    const target=new T.Vector3(50,24,17);
+    this.orb={r:300,th:-0.85,ph:1.12};
+    const dom=renderer.domElement;
+    let dragging=false,lx=0,ly=0;
+    dom.style.touchAction='none'; dom.style.cursor='grab';
+    dom.addEventListener('pointerdown',ev=>{dragging=true;lx=ev.clientX;ly=ev.clientY;dom.setPointerCapture(ev.pointerId);dom.style.cursor='grabbing';});
+    dom.addEventListener('pointermove',ev=>{ if(!dragging)return;
+      this.orb.th+=(ev.clientX-lx)*0.008; this.orb.ph-=(ev.clientY-ly)*0.008;
+      this.orb.ph=Math.max(0.15,Math.min(1.55,this.orb.ph)); lx=ev.clientX; ly=ev.clientY; });
+    dom.addEventListener('pointerup',()=>{dragging=false;dom.style.cursor='grab';});
+    dom.addEventListener('wheel',ev=>{ ev.preventDefault(); this.orb.r=Math.max(130,Math.min(700,this.orb.r*(1+ev.deltaY*0.001))); },{passive:false});
+    this.ro3=new ResizeObserver(()=>{
+      const w=el.clientWidth,h=el.clientHeight; if(!w||!h) return;
+      renderer.setSize(w,h); cam.aspect=w/h; cam.updateProjectionMatrix();
+    });
+    this.ro3.observe(el);
+    const loop=()=>{
+      this.raf=requestAnimationFrame(loop);
+      const {r,th,ph}=this.orb;
+      cam.position.set(target.x+r*Math.sin(ph)*Math.cos(th), target.y+r*Math.cos(ph), target.z+r*Math.sin(ph)*Math.sin(th));
+      cam.lookAt(target);
+      renderer.render(scene,cam);
+    };
+    loop();
+    this.G.ORDER.forEach(f=>this.tex[f].needsUpdate=true);
+    this.setState({threeStatus:''});
+  }
+
+  // ---------- Export ----------
+  tabPts(f,a,b,depth){
+    const g=this.G,m=g.NET[f];
+    const A=this.applyM(m,a), B=this.applyM(m,b);
+    const F=g.FACES[f];
+    let cx=0,cy=0; F.poly.forEach(p=>{const q=this.applyM(m,p);cx+=q[0];cy+=q[1];});
+    cx/=F.poly.length; cy/=F.poly.length;
+    const ux=B[0]-A[0], uy=B[1]-A[1], len=Math.hypot(ux,uy);
+    let nx=-uy/len, ny=ux/len;
+    const mx=(A[0]+B[0])/2, my=(A[1]+B[1])/2;
+    if(nx*(cx-mx)+ny*(cy-my)>0){ nx=-nx; ny=-ny; }
+    const k=Math.min(depth,len*0.3);
+    return [A,[A[0]+nx*depth+ux/len*k,A[1]+ny*depth+uy/len*k],[B[0]+nx*depth-ux/len*k,B[1]+ny*depth-uy/len*k],B];
+  }
+  netBBox(depth){
+    const g=this.G;
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    const acc=p=>{x0=Math.min(x0,p[0]);y0=Math.min(y0,p[1]);x1=Math.max(x1,p[0]);y1=Math.max(y1,p[1]);};
+    g.ORDER.forEach(f=>{
+      const F=g.FACES[f],m=g.NET[f];
+      F.poly.forEach(p=>acc(this.applyM(m,p)));
+      for(let i=0;i<F.poly.length;i++) if(F.edges[i]==='tab')
+        this.tabPts(f,F.poly[i],F.poly[(i+1)%F.poly.length],depth).forEach(acc);
+    });
+    return {x0,y0,x1,y1};
+  }
+  renderNet(ctx,ppm,ox,oy,depth,minimal){
+    const g=this.G;
+    g.ORDER.forEach(f=>{
+      const F=g.FACES[f],m=g.NET[f];
+      ctx.save();
+      ctx.setTransform(ppm,0,0,ppm,ox*ppm,oy*ppm);
+      ctx.transform(m[0],m[1],m[2],m[3],m[4],m[5]);
+      ctx.beginPath(); F.poly.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(this.off[f],0,0,this.off[f].width,this.off[f].height,0,0,F.w,F.h);
+      ctx.restore();
+    });
+    ctx.setTransform(ppm,0,0,ppm,ox*ppm,oy*ppm);
+    const cutCol=minimal?'#666666':'#1c1c1c', foldCol=minimal?'#aaaaaa':'#777777';
+    const cutW=minimal?0.25:0.4, foldW=minimal?0.2:0.3;
+    g.ORDER.forEach(f=>{
+      const F=g.FACES[f],m=g.NET[f];
+      for(let i=0;i<F.poly.length;i++){
+        const a=this.applyM(m,F.poly[i]), b=this.applyM(m,F.poly[(i+1)%F.poly.length]);
+        const cls=F.edges[i];
+        if(cls==='tab'){
+          const tp=this.tabPts(f,F.poly[i],F.poly[(i+1)%F.poly.length],depth);
+          ctx.beginPath(); ctx.moveTo(tp[0][0],tp[0][1]);
+          for(let j=1;j<4;j++) ctx.lineTo(tp[j][0],tp[j][1]);
+          ctx.setLineDash([]); ctx.strokeStyle=cutCol; ctx.lineWidth=cutW; ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]);
+          ctx.setLineDash([2.2,1.8]); ctx.strokeStyle=foldCol; ctx.lineWidth=foldW; ctx.stroke();
+        } else {
+          ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]);
+          ctx.setLineDash(cls==='fold'?[2.2,1.8]:[]);
+          ctx.strokeStyle=cls==='fold'?foldCol:cutCol;
+          ctx.lineWidth=cls==='fold'?foldW:cutW; ctx.stroke();
+        }
+      }
+    });
+    ctx.setLineDash([]);
+  }
+  doExport=()=>{
+    const g=this.G, ppm=8;
+    const depth=this.props.tabDepth??8;
+    const minimal=(this.props.guideStyle??'standard')==='minimal';
+    const cv=document.createElement('canvas');
+    cv.width=210*ppm; cv.height=297*ppm;
+    const ctx=cv.getContext('2d');
+    ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cv.width,cv.height);
+    const bb=this.netBBox(depth);
+    const ox=(210-(bb.x1-bb.x0))/2-bb.x0, oy=(297-(bb.y1-bb.y0))/2-bb.y0;
+    this.renderNet(ctx,ppm,ox,oy,depth,minimal);
+    ctx.setTransform(ppm,0,0,ppm,0,0);
+    ctx.fillStyle='#8a8a8a'; ctx.font='3.4px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Cake slice box — cut along solid lines, fold along dashed lines, glue the blank tabs inside.',105,291);
+    try{
+      const J=window.jspdf&&window.jspdf.jsPDF;
+      if(!J) throw new Error('no jspdf');
+      const pdf=new J({orientation:'portrait',unit:'mm',format:'a4'});
+      pdf.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,210,297);
+      pdf.save('cake-slice-box.pdf');
+      this.showToast('PDF downloaded — print at 100% scale on A4');
+    }catch(err){
+      const w=window.open('','_blank');
+      if(w){
+        w.document.write('<title>Cake slice box — print</title><style>@page{size:A4;margin:0}body{margin:0}img{width:210mm;height:297mm}</style><img src="'+cv.toDataURL('image/png')+'">');
+        w.document.close(); setTimeout(()=>w.print(),400);
+        this.showToast('PDF library unavailable — use the print dialog (Save as PDF)');
+      } else this.showToast('Popup blocked — allow popups to export');
+    }
+  };
+
+  renderVals(){
+    const s=this.state, g=this.G;
+    const accent=this.props.accentColor??'#E0567A';
+    const base={height:30,padding:'0 12px',borderRadius:8,border:'1px solid #363a45',
+      background:'linear-gradient(180deg,#2b2e37,#23252d)',color:'#dfe2ea',fontSize:12.5,fontWeight:500,
+      cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6,fontFamily:'inherit',whiteSpace:'nowrap',
+      letterSpacing:'.01em',boxShadow:'0 1px 2px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05)'};
+    const act={...base,background:'linear-gradient(180deg,'+accent+','+accent+'d9)',borderColor:accent,color:'#fff',fontWeight:600,
+      boxShadow:'0 1px 3px rgba(0,0,0,.4), 0 0 0 3px '+accent+'2b, inset 0 1px 0 rgba(255,255,255,.2)'};
+    const dis={...base,opacity:0.4,cursor:'default',boxShadow:'none'};
+    const tool={...base,width:38,height:38,padding:0,justifyContent:'center',borderRadius:11};
+    const toolAct={...act,width:38,height:38,padding:0,justifyContent:'center',borderRadius:11};
+    const tab={...base,height:28,borderRadius:14,padding:'0 14px'};
+    const tabAct={...act,height:28,borderRadius:14,padding:'0 14px'};
+    const small={...base,height:25,padding:'0 9px',fontSize:12,borderRadius:7};
+    const smallAct={...act,height:25,padding:'0 9px',fontSize:12,borderRadius:7};
+    const sel=this.doc?this.selObjs():[];
+    const o=sel.length===1?sel[0]:null;
+    const F=g.FACES[s.face];
+    const T=(t)=>()=>this.setTool(t);
+    const Fc=(f)=>()=>this.setFace(f);
+    return {
+      accent,
+      btnStyle:base,
+      exportStyle:{...act,height:32,fontWeight:600},
+      delStyle:{...base,color:'#f08a8a',borderColor:'#4a3036'},
+      undoStyle:s.canUndo?base:dis, redoStyle:s.canRedo?base:dis,
+      editAllStyle:s.editAll?act:base,
+      doUndo:this.doUndo, doRedo:this.doRedo, toggleEditAll:this.toggleEditAll,
+      tSelect:s.tool==='select'?toolAct:tool, tBrush:s.tool==='brush'?toolAct:tool,
+      tRect:s.tool==='rect'?toolAct:tool, tEllipse:s.tool==='ellipse'?toolAct:tool,
+      tLine:s.tool==='line'?toolAct:tool, tTri:s.tool==='tri'?toolAct:tool,
+      pickSelect:T('select'), pickBrush:T('brush'), pickRect:T('rect'),
+      pickEllipse:T('ellipse'), pickLine:T('line'), pickTri:T('tri'),
+      fSideA:s.face==='sideA'?tabAct:tab, fSideB:s.face==='sideB'?tabAct:tab,
+      fBack:s.face==='back'?tabAct:tab, fTop:s.face==='top'?tabAct:tab, fBottom:s.face==='bottom'?tabAct:tab,
+      pickFaceSideA:Fc('sideA'), pickFaceSideB:Fc('sideB'), pickFaceBack:Fc('back'),
+      pickFaceTop:Fc('top'), pickFaceBottom:Fc('bottom'),
+      faceDims:F.label+' · '+Math.round(F.w*10)/10+' × '+F.h+' mm',
+      faceLabel:F.label,
+      mirrorTargets:g.ORDER.filter(f=>f!==s.face).map(f=>({id:f,label:g.FACES[f].label})),
+      mirrorTarget:s.mirrorTarget, onMirrorTarget:this.onMirrorTarget, doMirror:this.doMirror,
+      onAddImage:this.onAddImage, onAddImageAll:this.onAddImageAll, onFile:this.onFile,
+      fileRef:this.fileRef, edRef:this.edRef, threeRef:this.threeRef,
+      color:s.color, onColor:this.onColor,
+      brushSize:s.brushSize, onBrush:this.onBrush, brushMm:s.brushSize+' mm',
+      fill:s.fill, onFill:this.onFill,
+      faceBg:this.doc?this.doc.faces[s.face].bg:'#ffffff', onFaceBg:this.onFaceBg,
+      hasSel:sel.length>0, selIsImage:!!o&&o.type==='image',
+      selHasCrop:!!o&&o.type==='image'&&o.crop!=='none',
+      selCount:sel.length>1?sel.length+' selected':'1 selected',
+      toggleCropAdjust:this.toggleCropAdjust,
+      cAdj:s.cropAdjust?smallAct:small,
+      cropNone:()=>this.setCrop('none'), cropSquare:()=>this.setCrop('square'), cropCircle:()=>this.setCrop('circle'),
+      cNone:o&&o.crop==='none'?smallAct:small, cSquare:o&&o.crop==='square'?smallAct:small, cCircle:o&&o.crop==='circle'?smallAct:small,
+      doClone:this.doClone, doDelete:this.doDelete,
+      doExport:this.doExport,
+      toast:s.toast, toastOn:!!s.toast,
+      threeStatus:s.threeStatus, threeStatusOn:!!s.threeStatus
+    };
+  }
+}
+</script>
+</body>
+</html>
