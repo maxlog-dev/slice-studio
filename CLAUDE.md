@@ -9,7 +9,9 @@ No backend; autosaves to localStorage key `cake-slice-doc-v1`.
 
 - Git: `main`, `f5f54d7` (initial) → `b05be8c` (straight folds, slice selector,
   neighbor shadows, brush S/M/L, corner-anchored shapes, 3-decimal dims) →
-  `4033e26` (ghost shadows = true 3D neighbors unfolded per edge, ghost z-6).
+  `4033e26` (ghost shadows = true 3D neighbors unfolded per edge, ghost z-6) →
+  `ff4b660` (bottom controls bar wraps on narrow screens instead of scrolling;
+  crop-adjust drag follows the mouse — clip delta sign was inverted).
 - All requested features implemented and verified; `npx tsc -b` and
   `npm run build` pass. Dev server via `.claude/launch.json` ("dev", port 5173).
 
@@ -29,7 +31,8 @@ No backend; autosaves to localStorage key `cake-slice-doc-v1`.
   Edit-all sync via `syncId` + `qrDecompose(calcTransformMatrix())` (relative
   center position, `faceScale` min-ratio). Crop = centered clipPath; crop-adjust
   mode intercepts object:moving/scaling to move/resize the clipPath while
-  pinning the object. Undo history = `DocState {slices, faces: string[]}` (60
+  pinning the object (clip window follows the mouse: `clipLeft + lx`, clamped
+  to the image). Undo history = `DocState {slices, faces: string[]}` (60
   deep); slices changes resize canvases via `setDimensions`. Images stored as
   ≤1200px data URLs (survive reload). `mirrorTo(dst)` = clear dst + flipX clones.
 - `Preview3D.tsx` — meshes built from `mgr.geo`, keyed on `slices` prop;
