@@ -7,8 +7,9 @@ No backend; autosaves to localStorage key `cake-slice-doc-v1`.
 
 ## State (as of 2026-07-05)
 
-- Git: `main`, commits `f5f54d7` (initial) → `b05be8c` (straight folds, slice
-  selector, neighbor shadows, brush S/M/L, corner-anchored shapes, 3-decimal dims).
+- Git: `main`, `f5f54d7` (initial) → `b05be8c` (straight folds, slice selector,
+  neighbor shadows, brush S/M/L, corner-anchored shapes, 3-decimal dims) →
+  `4033e26` (ghost shadows = true 3D neighbors unfolded per edge, ghost z-6).
 - All requested features implemented and verified; `npx tsc -b` and
   `npm run build` pass. Dev server via `.claude/launch.json` ("dev", port 5173).
 

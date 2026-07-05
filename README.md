@@ -22,9 +22,10 @@ npm run build    # production build in dist/
   straight), Top and Bottom (triangles). Pick 6 / 8 / 10 / 12 slices per cake
   (60° / 45° / 36° / 30° wedge); the radius auto-fits the largest slice that
   still prints on one A4 page. All faces are 55 mm tall.
-- **Neighbor shadows** — while editing a face, the adjacent faces are shown
-  unfolded flat around it (translucent), so patterns can be lined up across
-  fold edges. Toggle in the bottom bar.
+- **Neighbor shadows** — while editing a face, every edge shows the face that
+  will touch it on the folded slice (not just net neighbors — e.g. Side A shows
+  Side B across the apex edge), unfolded flat and translucent, so patterns can
+  be lined up across every fold and glued seam. Toggle in the bottom bar.
 - **Images** — "＋ Add image" (active face) or "＋ Image on all faces" (linked);
   move, resize, rotate, clone (Ctrl+D), delete; square/circle crop with an
   "Adjust crop" mode (drag repositions the window, corner handles resize it).
