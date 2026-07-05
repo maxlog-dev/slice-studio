@@ -497,7 +497,7 @@ export default function App() {
                     {cropShape !== 'none' && (
                       <button
                         className={`btn sm ${mgr.cropAdjust ? 'active' : ''}`}
-                        title="When on, drag the image to choose which part sits inside the crop"
+                        title="When on, drag to move the crop window over the image; corner handles resize it"
                         onClick={() => mgr.setCropAdjust(!mgr.cropAdjust)}
                       >
                         ⊹ Adjust crop

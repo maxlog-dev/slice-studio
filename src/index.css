@@ -313,15 +313,13 @@ button:active:not(:disabled) {
 .controls {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 12px;
-  height: 48px;
+  gap: 6px 14px;
+  padding: 7px 12px;
+  min-height: 48px;
   flex: none;
   background: #191a1f;
   border-top: 1px solid #24262e;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
+  flex-wrap: wrap; /* narrow screens: grow to a second row, never hide controls */
 }
 
 .ctl {
@@ -349,7 +347,7 @@ button:active:not(:disabled) {
 }
 
 .controls input[type='range'] {
-  width: 110px;
+  width: 90px;
 }
 
 .sel-group {

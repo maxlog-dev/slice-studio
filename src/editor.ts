@@ -190,9 +190,10 @@ export class EditorManager {
       if (o.flipX) lx = -lx;
       const s = r.clipSize;
       const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v));
+      // + delta: the crop window follows the mouse across the (pinned) image
       cp.set({
-        left: clamp(r.clipLeft - lx, Math.max(0, (o.width - s) / 2)),
-        top: clamp(r.clipTop - ly, Math.max(0, (o.height - s) / 2)),
+        left: clamp(r.clipLeft + lx, Math.max(0, (o.width - s) / 2)),
+        top: clamp(r.clipTop + ly, Math.max(0, (o.height - s) / 2)),
       });
       o.set({ left: r.left, top: r.top });
       o.dirty = true;
