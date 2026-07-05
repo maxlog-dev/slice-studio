@@ -14,6 +14,10 @@ No backend; autosaves to localStorage key `cake-slice-doc-v1`.
   crop-adjust drag follows the mouse — clip delta sign was inverted).
 - All requested features implemented and verified; `npx tsc -b` and
   `npm run build` pass. Dev server via `.claude/launch.json` ("dev", port 5173).
+- Deployed: https://maxlog-dev.github.io/slice-studio/ via GitHub Pages
+  (`.github/workflows/deploy.yml`, deploys on every push to `main`; public repo
+  `maxlog-dev/slice-studio`). Vite `base` is `/slice-studio/` for builds only —
+  dev server stays at `/`.
 
 ## Architecture (src/)
 
